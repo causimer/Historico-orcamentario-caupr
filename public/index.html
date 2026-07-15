@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Histórico Orçamentário · CAU/PR</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- tela de login -->
+  <div id="loginScreen" class="login-screen">
+    <div class="login-box">
+      <h1>Histórico orçamentário</h1>
+      <p class="muted">CAU/PR · acesse com seu login</p>
+      <input type="email" id="loginEmail" placeholder="E-mail" />
+      <input type="password" id="loginPassword" placeholder="Senha" />
+      <button class="btn primary" id="loginBtn" style="width:100%;">Entrar</button>
+      <p class="muted" id="loginError" style="color:#B5473A; min-height:16px; margin-top:10px;"></p>
+    </div>
+  </div>
+
+  <!-- tela de "primeiro acesso" (definir papel) -->
+  <div id="onboardScreen" class="login-screen" style="display:none;">
+    <div class="login-box">
+      <h1>Primeiro acesso</h1>
+      <p class="muted">Não encontrei seu perfil ainda. Você é:</p>
+      <button class="btn primary" id="onboardMasterBtn" style="width:100%; margin-bottom:10px;">Sou o(a) master</button>
+      <button class="btn" id="onboardViewerBtn" style="width:100%;">Sou visualizador(a)</button>
+      <p class="muted" id="onboardMsg" style="margin-top:12px;"></p>
+      <p class="muted" style="margin-top:16px; font-size:11px;">Seu identificador (UID): <span id="onboardUid" class="mono"></span></p>
+    </div>
+  </div>
+
+  <!-- app principal -->
+  <div id="appShell" class="app-shell" style="display:none;">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-title">Histórico<br/>orçamentário</div>
+        <div class="sidebar-sub">CAU/PR</div>
+      </div>
+      <button class="nav-item active" data-view="inicio">Situação atual</button>
+      <button class="nav-item" data-view="relatorio">Relatório do período</button>
+      <button class="nav-item" data-view="tendencia">Evolução no tempo</button>
+      <button class="nav-item" data-view="categorias">Categorias</button>
+      <button class="nav-item master-only" data-view="retratos">Retratos (upload)</button>
+      <button class="nav-item master-only" data-view="backup">Backup</button>
+      <button class="nav-item" data-view="conta">Minha conta</button>
+      <div class="sidebar-footer">
+        <div class="sidebar-user" id="sidebarUser"></div>
+        <button class="btn" id="logoutBtn" style="width:100%;">Sair</button>
+      </div>
+    </nav>
+
+    <main class="main-content">
+
+      <section id="view-inicio" class="view">
+        <h2>Situação atual</h2>
+        <div class="row" style="margin: 14px 0;">
+          <div><label>Categoria</label><select id="filterCategoria"><option value="__todas__">Todas as categorias</option></select></div>
+          <div style="flex:1; min-width:200px;"><label>Buscar centro de custo</label><input type="text" id="filterBusca" placeholder="ex: fiscalização..." style="width:100%;" /></div>
+          <button class="btn" id="filterClear">Limpar filtros</button>
+        </div>
+        <div class="card" id="currentCard"><p class="muted">Carregando...</p></div>
+        <h2 style="margin-top:28px;">Resumo por categoria</h2>
+        <div class="card" id="categorySummaryCard"><p class="muted">Carregando...</p></div>
+      </section>
+
+      <section id="view-relatorio" class="view" style="display:none;">
+        <h2>Relatório do período</h2>
+        <div class="card">
+          <label>Atalhos</label>
+          <div class="preset-row">
+            <button class="btn preset-btn" data-preset="7">Últimos 7 dias</button>
+            <button class="btn preset-btn" data-preset="15">Últimos 15 dias</button>
+            <button class="btn preset-btn" data-preset="30">Últimos 30 dias</button>
+            <button class="btn preset-btn" data-preset="mes">Este mês</button>
+            <button class="btn preset-btn" data-preset="tudo">Todo o período</button>
+          </div>
+          <div class="row" style="margin-top:16px;">
+            <div class="date-combo">
+              <label>Data inicial</label>
+              <input type="text" id="dateFromInput" placeholder="dd/mm/aaaa" autocomplete="off" />
+              <div class="date-combo-list" id="dateFromList"></div>
+            </div>
+            <div class="date-combo">
+              <label>Data final</label>
+              <input type="text" id="dateToInput" placeholder="dd/mm/aaaa" autocomplete="off" />
+              <div class="date-combo-list" id="dateToList"></div>
+            </div>
+            <button class="btn primary" id="reportBtn" disabled>Gerar relatório</button>
+            <button class="btn" id="csvBtn" disabled>Baixar CSV</button>
+          </div>
+          <div id="reportOut" style="margin-top:16px;"></div>
+        </div>
+      </section>
+
+      <section id="view-tendencia" class="view" style="display:none;">
+        <h2>Evolução no tempo</h2>
+        <div class="card">
+          <div class="row" style="margin-bottom:14px;">
+            <div><label>Métrica</label>
+              <select id="trendMetric">
+                <option value="empenho">Empenhado</option>
+                <option value="pagamento" selected>Pago</option>
+                <option value="saldoOrc">Saldo de orçamento</option>
+                <option value="saldoLiq">Saldo a liquidar</option>
+              </select>
+            </div>
+          </div>
+          <p class="muted" id="trendEmpty">Salve ao menos 2 retratos para ver a evolução no tempo.</p>
+          <canvas id="trendChart" height="90" style="display:none;"></canvas>
+        </div>
+      </section>
+
+      <section id="view-categorias" class="view" style="display:none;">
+        <h2>Categorias de despesa</h2>
+        <div class="card">
+          <p class="muted" style="margin:0 0 12px;">Cada centro de custo recebe uma categoria sugerida automaticamente — ajuste como quiser.</p>
+          <div class="row master-only" style="margin-bottom:14px;">
+            <div style="flex:1; min-width:200px;"><label>Nova categoria</label><input type="text" id="newCatInput" placeholder="ex: Eventos institucionais" style="width:100%;" /></div>
+            <button class="btn" id="newCatBtn">Adicionar categoria</button>
+          </div>
+          <div style="overflow-x:auto; max-height:420px; overflow-y:auto;">
+            <table id="catTable"><thead><tr><th>Centro de custo</th><th>Categoria</th></tr></thead><tbody></tbody></table>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-retratos" class="view master-only" style="display:none;">
+        <h2>Retratos (upload)</h2>
+        <div class="card">
+          <div class="row">
+            <div><label>Planilha do dia (.xlsx)</label><input type="file" id="fileInput" accept=".xlsx,.xls" /></div>
+            <div><label>Data deste retrato</label><input type="date" id="dateInput" /></div>
+            <button class="btn primary" id="saveBtn" disabled>Salvar retrato</button>
+          </div>
+          <p class="muted" id="parseStatus" style="margin:12px 0 0;"></p>
+        </div>
+        <div class="card">
+          <div id="chipsWrap"><span class="muted">Nenhum retrato salvo ainda.</span></div>
+        </div>
+      </section>
+
+      <section id="view-backup" class="view master-only" style="display:none;">
+        <h2>Backup</h2>
+        <div class="card">
+          <p class="muted" style="margin:0 0 12px;">Baixe uma cópia de segurança de todo o histórico salvo na nuvem.</p>
+          <button class="btn primary" id="exportBtn">Exportar histórico completo (.json)</button>
+        </div>
+      </section>
+
+      <section id="view-conta" class="view" style="display:none;">
+        <h2>Minha conta</h2>
+        <div class="card">
+          <p class="muted" id="contaInfo" style="margin:0 0 16px;"></p>
+          <label>Nova senha</label>
+          <input type="password" id="newPasswordInput" placeholder="Digite a nova senha" style="width:100%; max-width:320px; margin-bottom:10px;" />
+          <div><button class="btn primary" id="changePasswordBtn">Trocar minha senha</button></div>
+          <p class="muted" id="passwordMsg" style="margin-top:10px;"></p>
+        </div>
+        <div class="card master-only" id="manageAccessCard">
+          <h3 style="font-size:14px; margin-bottom:10px;">Gerenciar acesso</h3>
+          <p class="muted" style="margin:0 0 12px;">Para criar o login da sua visualizadora: no <a href="https://console.firebase.google.com" target="_blank" style="color:#2E5A8C;">Firebase Console → Authentication → Users → Add user</a>, crie o e-mail/senha dela. Ela mesma escolhe "Sou visualizador(a)" no primeiro acesso — não precisa fazer mais nada aqui.</p>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function myRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    function isMaster() {
+      return isSignedIn() && myRole() == 'master';
+    }
+
+    // documento único, criado manualmente uma vez no console, com o campo masterEmail
+    match /config/roles {
+      allow read: if isSignedIn();
+      allow write: if isMaster();
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      // cada pessoa só pode criar o PRÓPRIO documento de papel, na primeira vez que loga
+      allow create: if isSignedIn() && request.auth.uid == userId && (
+        (request.resource.data.role == 'master' &&
+          request.auth.token.email == get(/databases/$(database)/documents/config/roles).data.masterEmail)
+        || request.resource.data.role == 'viewer'
+      );
+      allow update, delete: if isMaster();
+    }
+
+    match /snapshots/{date} {
+      allow read: if isSignedIn();
+      allow write: if isMaster();
+    }
+
+    match /config/categorias {
+      allow read: if isSignedIn();
+      allow write: if isMaster();
+    }
+  }
+}

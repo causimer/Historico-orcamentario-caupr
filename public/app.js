@@ -30,10 +30,7 @@ const loginEmail = document.getElementById('loginEmail');
 const loginPassword = document.getElementById('loginPassword');
 const loginBtn = document.getElementById('loginBtn');
 const loginError = document.getElementById('loginError');
-const onboardMasterBtn = document.getElementById('onboardMasterBtn');
-const onboardViewerBtn = document.getElementById('onboardViewerBtn');
 const onboardMsg = document.getElementById('onboardMsg');
-const onboardUid = document.getElementById('onboardUid');
 const sidebarUser = document.getElementById('sidebarUser');
 const logoutBtn = document.getElementById('logoutBtn');
 
@@ -47,20 +44,14 @@ loginPassword.addEventListener('keydown', function(e){ if (e.key === 'Enter') lo
 
 logoutBtn.addEventListener('click', function(){ signOut(auth); });
 
-onboardMasterBtn.addEventListener('click', function(){ tryOnboard('master'); });
-onboardViewerBtn.addEventListener('click', function(){ tryOnboard('viewer'); });
-
-function tryOnboard(role){
-  onboardMsg.textContent = 'Configurando...';
-  setDoc(doc(db, 'users', currentUser.uid), {
-    email: currentUser.email, role: role, displayName: currentUser.email.split('@')[0]
-  }).then(function(){
-    currentRole = role;
-    enterApp();
-  }).catch(function(err){
-    onboardMsg.textContent = role === 'master'
-      ? 'Não foi possível te registrar como master. Confirme se seu e-mail está salvo em config/roles (masterEmail) no Firestore.'
-      : 'Erro: ' + err.message;
+function provisionNewUser(user){
+  onboardMsg.textContent = 'Preparando sua conta...';
+  return getDoc(doc(db, 'config', 'roles')).then(function(rolesSnap){
+    var masterEmail = rolesSnap.exists() ? rolesSnap.data().masterEmail : null;
+    var role = (masterEmail && user.email === masterEmail) ? 'master' : 'viewer';
+    return setDoc(doc(db, 'users', user.uid), {
+      email: user.email, role: role, displayName: user.email.split('@')[0]
+    }).then(function(){ return role; });
   });
 }
 
@@ -81,7 +72,12 @@ onAuthStateChanged(auth, function(user){
     } else {
       loginScreen.style.display = 'none';
       onboardScreen.style.display = 'flex';
-      onboardUid.textContent = user.uid;
+      provisionNewUser(user).then(function(role){
+        currentRole = role;
+        enterApp();
+      }).catch(function(err){
+        onboardMsg.textContent = 'Não foi possível preparar sua conta. Peça para o master verificar o acesso. (' + err.message + ')';
+      });
     }
   });
 });

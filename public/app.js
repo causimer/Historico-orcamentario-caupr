@@ -21,6 +21,7 @@ const db = getFirestore(app);
 
 let currentUser = null;   // { uid, email }
 let currentRole = null;   // 'master' | 'viewer'
+var todayISO = new Date().toISOString().slice(0,10);
 
 // ---------- elementos ----------
 const loginScreen = document.getElementById('loginScreen');
@@ -250,8 +251,8 @@ var currentCard = document.getElementById('currentCard');
 function renderCurrent(snap){
   if (!snap || !snap.rows.length){ currentCard.innerHTML = '<p class="muted">Nenhum retrato salvo ainda.</p>'; return; }
   var rows = snap.rows.filter(function(r){ return passesFilter(r.centro); }).sort(function(a,b){return a.centro.localeCompare(b.centro);});
-  var tot = {orcado:0,empenho:0,pagamento:0,saldoOrc:0,saldoLiq:0};
-  rows.forEach(function(r){ tot.orcado+=r.orcado; tot.empenho+=r.empenho; tot.pagamento+=r.pagamento; tot.saldoOrc+=r.saldoOrc; tot.saldoLiq+=r.saldoLiq; });
+  var tot = {orcado:0,empenho:0,liquidacao:0,pagamento:0,saldoOrc:0,saldoLiq:0,saldoPagar:0};
+  rows.forEach(function(r){ tot.orcado+=r.orcado; tot.empenho+=r.empenho; tot.liquidacao+=(r.liquidacao||0); tot.pagamento+=r.pagamento; tot.saldoOrc+=r.saldoOrc; tot.saldoLiq+=r.saldoLiq; tot.saldoPagar+=(r.saldoPagar||0); });
   var pct = tot.orcado ? (tot.pagamento/tot.orcado*100) : 0;
   var html = '<p class="muted" style="margin:0 0 12px;">Referente a ' + fmtDate(snap.date) + ' · ' + rows.length + ' de ' + snap.rows.length + ' centros exibidos</p>';
   html += '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px; margin-bottom:18px;">';
@@ -262,9 +263,12 @@ function renderCurrent(snap){
   if (!rows.length){ html += '<p class="muted">Nenhum centro de custo corresponde ao filtro atual.</p>'; currentCard.innerHTML = html; return; }
   html += '<div class="cc-grid">';
   rows.forEach(function(r){
+    var temLiq = r.liquidacao !== null && r.liquidacao !== undefined;
     var pctEmp = r.orcado ? (r.empenho / r.orcado * 100) : 0;
+    var pctLiq = r.orcado && temLiq ? (r.liquidacao / r.orcado * 100) : 0;
     var pctPag = r.orcado ? (r.pagamento / r.orcado * 100) : 0;
     var pctEmpBar = Math.min(pctEmp, 100);
+    var pctLiqBar = Math.min(pctLiq, 100);
     var pctPagBar = Math.min(pctPag, 100);
     html += '<div class="cc-card">';
     html += '<div class="cc-name">'+r.centro+'</div>';
@@ -272,11 +276,18 @@ function renderCurrent(snap){
     html += '<div class="cc-orcado">Orçado: <strong>R$ '+fmt(r.orcado)+'</strong></div>';
     html += '<div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(r.empenho)+' · '+pctEmp.toFixed(1)+'%</span></div>';
     html += '<div class="pbar"><div class="pbar-fill empenho'+(pctEmp>100?' over':'')+'" style="width:'+pctEmpBar+'%;"></div></div>';
+    if (temLiq){
+      html += '<div class="pbar-row"><span>Liquidado</span><span>R$ '+fmt(r.liquidacao)+' · '+pctLiq.toFixed(1)+'%</span></div>';
+      html += '<div class="pbar"><div class="pbar-fill liquidado'+(pctLiq>100?' over':'')+'" style="width:'+pctLiqBar+'%;"></div></div>';
+    }
     html += '<div class="pbar-row"><span>Pago</span><span>R$ '+fmt(r.pagamento)+' · '+pctPag.toFixed(1)+'%</span></div>';
     html += '<div class="pbar"><div class="pbar-fill pago'+(pctPag>100?' over':'')+'" style="width:'+pctPagBar+'%;"></div></div>';
     html += '<div class="cc-saldos">';
     html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo do orçamento</div><div class="cc-saldo-value">R$ '+fmt(r.saldoOrc)+'</div></div>';
     html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a liquidar</div><div class="cc-saldo-value">R$ '+fmt(r.saldoLiq)+'</div></div>';
+    if (r.saldoPagar !== null && r.saldoPagar !== undefined){
+      html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a pagar</div><div class="cc-saldo-value">R$ '+fmt(r.saldoPagar)+'</div></div>';
+    }
     html += '</div></div>';
   });
   html += '</div>';
@@ -292,14 +303,15 @@ function renderCategorySummary(snap){
   var byCat = {};
   rows.forEach(function(r){
     var cat = catState.map[r.centro] || 'Sem categoria';
-    if (!byCat[cat]) byCat[cat] = {orcado:0,empenho:0,pagamento:0,saldoOrc:0,n:0};
-    byCat[cat].orcado+=r.orcado; byCat[cat].empenho+=r.empenho; byCat[cat].pagamento+=r.pagamento; byCat[cat].saldoOrc+=r.saldoOrc; byCat[cat].n+=1;
+    if (!byCat[cat]) byCat[cat] = {orcado:0,empenho:0,liquidacao:0,pagamento:0,saldoOrc:0,saldoLiq:0,saldoPagar:0,n:0};
+    byCat[cat].orcado+=r.orcado; byCat[cat].empenho+=r.empenho; byCat[cat].liquidacao+=(r.liquidacao||0); byCat[cat].pagamento+=r.pagamento;
+    byCat[cat].saldoOrc+=r.saldoOrc; byCat[cat].saldoLiq+=r.saldoLiq; byCat[cat].saldoPagar+=(r.saldoPagar||0); byCat[cat].n+=1;
   });
   var cats = Object.keys(byCat).sort(function(a,b){ return byCat[b].orcado - byCat[a].orcado; });
-  var html = '<div style="overflow-x:auto;"><table><thead><tr><th>Categoria</th><th>Centros</th><th>Orçado</th><th>Empenhado</th><th>Pago</th><th>Saldo orçamento</th><th>% executado</th></tr></thead><tbody>';
+  var html = '<div style="overflow-x:auto;"><table><thead><tr><th>Categoria</th><th>Centros</th><th>Orçado</th><th>Empenhado</th><th>Liquidado</th><th>Pago</th><th>Saldo orçamento</th><th>Saldo a liquidar</th><th>Saldo a pagar</th><th>% executado</th></tr></thead><tbody>';
   cats.forEach(function(cat){
     var c = byCat[cat]; var pct = c.orcado ? (c.pagamento/c.orcado*100) : 0;
-    html += '<tr><td>'+cat+'</td><td>'+c.n+'</td><td>'+fmt(c.orcado)+'</td><td>'+fmt(c.empenho)+'</td><td>'+fmt(c.pagamento)+'</td><td>'+fmt(c.saldoOrc)+'</td><td>'+pct.toFixed(2)+'%</td></tr>';
+    html += '<tr><td>'+cat+'</td><td>'+c.n+'</td><td>'+fmt(c.orcado)+'</td><td>'+fmt(c.empenho)+'</td><td>'+fmt(c.liquidacao)+'</td><td>'+fmt(c.pagamento)+'</td><td>'+fmt(c.saldoOrc)+'</td><td>'+fmt(c.saldoLiq)+'</td><td>'+fmt(c.saldoPagar)+'</td><td>'+pct.toFixed(2)+'%</td></tr>';
   });
   html += '</tbody></table></div>';
   categorySummaryCard.innerHTML = html;
@@ -335,7 +347,6 @@ function renderTrendChart(dates, snaps){
 
 // ---------- retratos (upload) — só master ----------
 var fileInput = document.getElementById('fileInput');
-var dateInput = document.getElementById('dateInput');
 var saveBtn = document.getElementById('saveBtn');
 var parseStatus = document.getElementById('parseStatus');
 var chipsWrap = document.getElementById('chipsWrap');
@@ -345,9 +356,15 @@ var dateFromList = document.getElementById('dateFromList');
 var dateToList = document.getElementById('dateToList');
 var reportBtn = document.getElementById('reportBtn');
 var csvBtn = document.getElementById('csvBtn');
-var pendingRows = null;
-var todayISO = new Date().toISOString().slice(0,10);
-if (dateInput) dateInput.value = todayISO;
+
+function extractDateFromFilename(name){
+  var matches = name.match(/\d{8}/g);
+  if (!matches || !matches.length) return null;
+  var last = matches[matches.length - 1];
+  var dd = parseInt(last.slice(0,2), 10), mm = parseInt(last.slice(2,4), 10), yyyy = parseInt(last.slice(4,8), 10);
+  if (mm < 1 || mm > 12 || dd < 1 || dd > 31 || yyyy < 2000 || yyyy > 2100) return null;
+  return yyyy + '-' + String(mm).padStart(2,'0') + '-' + String(dd).padStart(2,'0');
+}
 
 function parseWorkbook(file, cb){
   var reader = new FileReader();
@@ -359,13 +376,21 @@ function parseWorkbook(file, cb){
       if (!data.length) throw new Error('Planilha vazia.');
       var header = data[0].map(stripAccents);
       function findCol(keys){ for (var i=0;i<header.length;i++){ var h=header[i]; if(!h) continue; if (keys.every(function(k){return h.indexOf(k)!==-1;})) return i; } return -1; }
-      var cCentro=findCol(['centro']), cOrcado=findCol(['orcad']), cEmpenho=findCol(['empenho']), cPagamento=findCol(['pagamento']), cSaldoOrc=findCol(['saldo','orc']);
+      var cCentro=findCol(['centro']), cOrcado=findCol(['orcad']), cEmpenho=findCol(['empenho']);
+      var cLiquidacao=findCol(['liquidacao']);
+      var cPagamento=findCol(['pagamento']), cSaldoOrc=findCol(['saldo','orc']);
       var cSaldoLiq=findCol(['saldo','liquid']); if (cSaldoLiq===-1) cSaldoLiq=findCol(['remanescente']);
+      var cSaldoPagar=findCol(['saldo','pagar']);
       if (cCentro===-1 || cOrcado===-1) throw new Error('Não encontrei as colunas esperadas.');
       var rows=[];
       for (var r=1;r<data.length;r++){
         var row=data[r]; if (!row || row[cCentro]===null || row[cCentro]==='') continue;
-        rows.push({ centro:String(row[cCentro]).trim(), orcado:Number(row[cOrcado])||0, empenho:Number(row[cEmpenho])||0, pagamento:Number(row[cPagamento])||0, saldoOrc:Number(row[cSaldoOrc])||0, saldoLiq:Number(row[cSaldoLiq])||0 });
+        rows.push({
+          centro:String(row[cCentro]).trim(), orcado:Number(row[cOrcado])||0, empenho:Number(row[cEmpenho])||0,
+          liquidacao: cLiquidacao!==-1 ? (Number(row[cLiquidacao])||0) : null,
+          pagamento:Number(row[cPagamento])||0, saldoOrc:Number(row[cSaldoOrc])||0, saldoLiq:Number(row[cSaldoLiq])||0,
+          saldoPagar: cSaldoPagar!==-1 ? (Number(row[cSaldoPagar])||0) : null
+        });
       }
       if (!rows.length) throw new Error('Nenhuma linha encontrada.');
       cb(null, rows);
@@ -376,29 +401,49 @@ function parseWorkbook(file, cb){
 }
 
 if (fileInput) fileInput.addEventListener('change', function(){
-  var file = fileInput.files[0];
-  if (!file){ pendingRows=null; saveBtn.disabled=true; return; }
-  parseStatus.textContent = 'Lendo planilha...';
-  parseWorkbook(file, function(err, rows){
-    if (err){ parseStatus.textContent='Erro: '+err.message; pendingRows=null; saveBtn.disabled=true; return; }
-    pendingRows = rows; saveBtn.disabled=false;
-    parseStatus.textContent = rows.length+' centros de custo lidos · orçado total '+fmt(rows.reduce(function(a,r){return a+r.orcado;},0));
+  var files = Array.prototype.slice.call(fileInput.files || []);
+  if (!files.length){ saveBtn.disabled = true; parseStatus.textContent=''; return; }
+  var preview = files.map(function(f){
+    var d = extractDateFromFilename(f.name);
+    return (d ? fmtDate(d) : '⚠ sem data reconhecível') + ' — ' + f.name;
   });
+  parseStatus.innerHTML = files.length + ' arquivo(s) selecionado(s):<br>' + preview.join('<br>');
+  saveBtn.disabled = false;
 });
 
 if (saveBtn) saveBtn.addEventListener('click', function(){
-  if (!pendingRows) return;
-  var date = dateInput.value; if (!date){ parseStatus.textContent='Escolha a data.'; return; }
-  saveBtn.disabled=true; saveBtn.textContent='Salvando...';
-  saveSnapshot(date, pendingRows).then(function(){
-    var changed=false;
-    pendingRows.forEach(function(r){ if (!catState.map[r.centro]){ catState.map[r.centro]=suggestCategory(r.centro); changed=true; } });
-    return changed ? saveCategoriasDoc(catState) : Promise.resolve();
-  }).then(function(){
-    parseStatus.textContent = 'Retrato de '+fmtDate(date)+' salvo com '+pendingRows.length+' centros de custo.';
-    fileInput.value=''; pendingRows=null; saveBtn.textContent='Salvar retrato';
+  var files = Array.prototype.slice.call(fileInput.files || []);
+  if (!files.length) return;
+  saveBtn.disabled = true; saveBtn.textContent = 'Processando...';
+  var results = [];
+  var chain = Promise.resolve();
+  files.forEach(function(file){
+    chain = chain.then(function(){
+      var date = extractDateFromFilename(file.name);
+      if (!date){ results.push(file.name + ': não encontrei uma data de 8 dígitos (ddmmaaaa) no nome do arquivo — pulado.'); return; }
+      return new Promise(function(resolve){
+        parseWorkbook(file, function(err, rows){
+          if (err){ results.push(file.name + ': erro ao ler — ' + err.message); resolve(); return; }
+          saveSnapshot(date, rows).then(function(){
+            var changed = false;
+            rows.forEach(function(r){ if (!catState.map[r.centro]){ catState.map[r.centro] = suggestCategory(r.centro); changed = true; } });
+            return changed ? saveCategoriasDoc(catState) : Promise.resolve();
+          }).then(function(){
+            results.push(file.name + ': salvo como retrato de ' + fmtDate(date) + ' (' + rows.length + ' centros de custo).');
+            resolve();
+          }).catch(function(err){
+            results.push(file.name + ': erro ao salvar — ' + err.message);
+            resolve();
+          });
+        });
+      });
+    });
+  });
+  chain.then(function(){
+    parseStatus.innerHTML = results.join('<br>');
+    fileInput.value = ''; saveBtn.textContent = 'Salvar retrato(s)'; saveBtn.disabled = true;
     initDataAndViews();
-  }).catch(function(err){ parseStatus.textContent='Erro ao salvar: '+err.message; saveBtn.disabled=false; saveBtn.textContent='Salvar retrato'; });
+  });
 });
 
 function renderSnapshotChips(dates){
@@ -512,8 +557,8 @@ if (reportBtn) reportBtn.addEventListener('click', function(){
     var diffs = centros.map(function(c){
       var a=mapA[c], b=mapB[c];
       return { centro:c, orcado:b.orcado, orcadoMudou: a ? (a.orcado!==b.orcado) : false,
-        dEmpenho: b.empenho-(a?a.empenho:0), dPagamento: b.pagamento-(a?a.pagamento:0),
-        dSaldoOrc: b.saldoOrc-(a?a.saldoOrc:0), dSaldoLiq: b.saldoLiq-(a?a.saldoLiq:0), semDadoInicial: !a };
+        dEmpenho: b.empenho-(a?a.empenho:0), dLiquidacao: (b.liquidacao||0)-(a?(a.liquidacao||0):0), dPagamento: b.pagamento-(a?a.pagamento:0),
+        dSaldoOrc: b.saldoOrc-(a?a.saldoOrc:0), dSaldoLiq: b.saldoLiq-(a?a.saldoLiq:0), dSaldoPagar: (b.saldoPagar||0)-(a?(a.saldoPagar||0):0), semDadoInicial: !a };
     });
     lastReportDiffsRaw = diffs; lastReportDates=[d1,d2];
     renderReport(d1,d2,diffs);
@@ -524,18 +569,18 @@ if (reportBtn) reportBtn.addEventListener('click', function(){
 function renderReport(d1, d2, diffsAll){
   var diffs = diffsAll.filter(function(r){ return passesFilter(r.centro); });
   lastReportRows = diffs;
-  var tot={dEmpenho:0,dPagamento:0,dSaldoOrc:0,dSaldoLiq:0};
-  diffs.forEach(function(r){ tot.dEmpenho+=r.dEmpenho; tot.dPagamento+=r.dPagamento; tot.dSaldoOrc+=r.dSaldoOrc; tot.dSaldoLiq+=r.dSaldoLiq; });
+  var tot={dEmpenho:0,dLiquidacao:0,dPagamento:0,dSaldoOrc:0,dSaldoLiq:0,dSaldoPagar:0};
+  diffs.forEach(function(r){ tot.dEmpenho+=r.dEmpenho; tot.dLiquidacao+=r.dLiquidacao; tot.dPagamento+=r.dPagamento; tot.dSaldoOrc+=r.dSaldoOrc; tot.dSaldoLiq+=r.dSaldoLiq; tot.dSaldoPagar+=r.dSaldoPagar; });
   var days = Math.round((new Date(d2)-new Date(d1))/86400000);
   var html = '<p class="muted" style="margin:0 0 12px;">'+fmtDate(d1)+' → '+fmtDate(d2)+' · '+days+' dias · '+diffs.length+' de '+diffsAll.length+' centros exibidos</p>';
   if (!diffs.length){ html += '<p class="muted">Nenhum centro corresponde ao filtro atual.</p>'; reportOut.innerHTML = html; return; }
-  html += '<div style="overflow-x:auto;"><table><thead><tr><th>Centro de custo</th><th>Categoria</th><th>Orçado</th><th>Δ empenhado</th><th>Δ pago</th><th>Δ saldo orçamento</th><th>Δ saldo a liquidar</th></tr></thead><tbody>';
+  html += '<div style="overflow-x:auto;"><table><thead><tr><th>Centro de custo</th><th>Categoria</th><th>Orçado</th><th>Δ empenhado</th><th>Δ liquidado</th><th>Δ pago</th><th>Δ saldo orçamento</th><th>Δ saldo a liquidar</th><th>Δ saldo a pagar</th></tr></thead><tbody>';
   diffs.forEach(function(r){
     html += '<tr><td>'+r.centro+(r.semDadoInicial?' <span class="muted">(novo)</span>':'')+'</td><td>'+(catState.map[r.centro]||'—')+'</td><td>'+fmt(r.orcado)+(r.orcadoMudou?' <span class="muted">*</span>':'')+'</td>';
-    html += '<td class="'+(r.dEmpenho>=0?'pos':'neg')+'">'+fmtSigned(r.dEmpenho)+'</td><td class="'+(r.dPagamento>=0?'pos':'neg')+'">'+fmtSigned(r.dPagamento)+'</td>';
-    html += '<td class="'+(r.dSaldoOrc>=0?'pos':'neg')+'">'+fmtSigned(r.dSaldoOrc)+'</td><td class="'+(r.dSaldoLiq>=0?'pos':'neg')+'">'+fmtSigned(r.dSaldoLiq)+'</td></tr>';
+    html += '<td class="'+(r.dEmpenho>=0?'pos':'neg')+'">'+fmtSigned(r.dEmpenho)+'</td><td class="'+(r.dLiquidacao>=0?'pos':'neg')+'">'+fmtSigned(r.dLiquidacao)+'</td><td class="'+(r.dPagamento>=0?'pos':'neg')+'">'+fmtSigned(r.dPagamento)+'</td>';
+    html += '<td class="'+(r.dSaldoOrc>=0?'pos':'neg')+'">'+fmtSigned(r.dSaldoOrc)+'</td><td class="'+(r.dSaldoLiq>=0?'pos':'neg')+'">'+fmtSigned(r.dSaldoLiq)+'</td><td class="'+(r.dSaldoPagar>=0?'pos':'neg')+'">'+fmtSigned(r.dSaldoPagar)+'</td></tr>';
   });
-  html += '<tr class="total"><td>Total</td><td></td><td>—</td><td class="'+(tot.dEmpenho>=0?'pos':'neg')+'">'+fmtSigned(tot.dEmpenho)+'</td><td class="'+(tot.dPagamento>=0?'pos':'neg')+'">'+fmtSigned(tot.dPagamento)+'</td><td class="'+(tot.dSaldoOrc>=0?'pos':'neg')+'">'+fmtSigned(tot.dSaldoOrc)+'</td><td class="'+(tot.dSaldoLiq>=0?'pos':'neg')+'">'+fmtSigned(tot.dSaldoLiq)+'</td></tr></tbody></table></div>';
+  html += '<tr class="total"><td>Total</td><td></td><td>—</td><td class="'+(tot.dEmpenho>=0?'pos':'neg')+'">'+fmtSigned(tot.dEmpenho)+'</td><td class="'+(tot.dLiquidacao>=0?'pos':'neg')+'">'+fmtSigned(tot.dLiquidacao)+'</td><td class="'+(tot.dPagamento>=0?'pos':'neg')+'">'+fmtSigned(tot.dPagamento)+'</td><td class="'+(tot.dSaldoOrc>=0?'pos':'neg')+'">'+fmtSigned(tot.dSaldoOrc)+'</td><td class="'+(tot.dSaldoLiq>=0?'pos':'neg')+'">'+fmtSigned(tot.dSaldoLiq)+'</td><td class="'+(tot.dSaldoPagar>=0?'pos':'neg')+'">'+fmtSigned(tot.dSaldoPagar)+'</td></tr></tbody></table></div>';
   var hasChanged = diffs.some(function(r){return r.orcadoMudou;});
   if (hasChanged) html += '<p class="muted" style="margin-top:10px;">* o orçado mudou entre as datas.</p>';
   html += '<div style="margin-top:20px;"><canvas id="reportChart" height="90"></canvas></div>';
@@ -555,8 +600,8 @@ function renderReport(d1, d2, diffsAll){
 
 if (csvBtn) csvBtn.addEventListener('click', function(){
   if (!lastReportRows) return;
-  var lines = [['Centro de custo','Categoria','Orcado','Delta Empenhado','Delta Pago','Delta Saldo Orcamento','Delta Saldo a Liquidar'].join(';')];
-  lastReportRows.forEach(function(r){ lines.push([r.centro, catState.map[r.centro]||'', r.orcado, r.dEmpenho, r.dPagamento, r.dSaldoOrc, r.dSaldoLiq].join(';')); });
+  var lines = [['Centro de custo','Categoria','Orcado','Delta Empenhado','Delta Liquidado','Delta Pago','Delta Saldo Orcamento','Delta Saldo a Liquidar','Delta Saldo a Pagar'].join(';')];
+  lastReportRows.forEach(function(r){ lines.push([r.centro, catState.map[r.centro]||'', r.orcado, r.dEmpenho, r.dLiquidacao, r.dPagamento, r.dSaldoOrc, r.dSaldoLiq, r.dSaldoPagar].join(';')); });
   var blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8;'});
   var url = URL.createObjectURL(blob); var a = document.createElement('a');
   a.href=url; a.download='relatorio_'+getDateComboValue(dateFromInput)+'_a_'+getDateComboValue(dateToInput)+'.csv';

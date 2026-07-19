@@ -98,9 +98,11 @@
             <div><label>Métrica</label>
               <select id="trendMetric">
                 <option value="empenho">Empenhado</option>
+                <option value="liquidacao">Liquidado</option>
                 <option value="pagamento" selected>Pago</option>
                 <option value="saldoOrc">Saldo de orçamento</option>
                 <option value="saldoLiq">Saldo a liquidar</option>
+                <option value="saldoPagar">Saldo a pagar</option>
               </select>
             </div>
           </div>
@@ -127,9 +129,8 @@
         <h2>Retratos (upload)</h2>
         <div class="card">
           <div class="row">
-            <div><label>Planilha do dia (.xlsx)</label><input type="file" id="fileInput" accept=".xlsx,.xls" /></div>
-            <div><label>Data deste retrato</label><input type="date" id="dateInput" /></div>
-            <button class="btn primary" id="saveBtn" disabled>Salvar retrato</button>
+            <div><label>Planilha(s) do dia (.xlsx) — pode selecionar vários arquivos de uma vez, a data de cada um é lida do nome do arquivo</label><input type="file" id="fileInput" accept=".xlsx,.xls" multiple /></div>
+            <button class="btn primary" id="saveBtn" disabled>Salvar retrato(s)</button>
           </div>
           <p class="muted" id="parseStatus" style="margin:12px 0 0;"></p>
         </div>

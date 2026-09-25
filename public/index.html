@@ -36,9 +36,7 @@
         <div class="sidebar-sub">CAU/PR</div>
       </div>
       <button class="nav-item active" data-view="inicio">Situação atual</button>
-      <button class="nav-item" data-view="relatorio">Relatório do período</button>
-      <button class="nav-item" data-view="tendencia">Evolução no tempo</button>
-      <button class="nav-item" data-view="categorias">Categorias</button>
+      <button class="nav-item master-only" data-view="categorias">Categorias</button>
       <button class="nav-item master-only" data-view="retratos">Retratos (upload)</button>
       <button class="nav-item master-only" data-view="backup">Backup</button>
       <button class="nav-item" data-view="conta">Minha conta</button>
@@ -52,73 +50,45 @@
 
       <section id="view-inicio" class="view">
         <h2>Situação atual</h2>
-        <div class="row" style="margin: 14px 0;">
-          <div><label>Categoria</label><select id="filterCategoria"><option value="__todas__">Todas as categorias</option></select></div>
+        <div class="row" style="margin: 14px 0; align-items:flex-start;">
+          <div class="multi-combo" id="catMultiCombo">
+            <label>Categoria</label>
+            <button type="button" class="btn" id="catMultiBtn">Todas as categorias</button>
+            <div class="multi-combo-panel" id="catMultiPanel">
+              <div class="multi-combo-actions">
+                <button type="button" class="btn" id="catMultiAll">Marcar todas</button>
+                <button type="button" class="btn" id="catMultiNone">Desmarcar todas</button>
+              </div>
+              <div id="catMultiList"></div>
+            </div>
+          </div>
           <div style="flex:1; min-width:200px;"><label>Buscar centro de custo</label><input type="text" id="filterBusca" placeholder="ex: fiscalização..." style="width:100%;" /></div>
           <button class="btn" id="filterClear">Limpar filtros</button>
+        </div>
+        <div class="card" id="dateSliderCard">
+          <label>Data de referência (YTD)</label>
+          <div class="slider-row">
+            <input type="range" id="dateSlider" min="0" max="0" value="0" step="1" />
+            <span class="slider-date" id="dateSliderLabel">—</span>
+          </div>
+          <p class="muted" style="margin:6px 0 0;">Mostrando o acumulado do ano até a data selecionada.</p>
         </div>
         <div class="card" id="currentCard"><p class="muted">Carregando...</p></div>
         <h2 style="margin-top:28px;">Resumo por categoria</h2>
         <div class="card" id="categorySummaryCard"><p class="muted">Carregando...</p></div>
       </section>
 
-      <section id="view-relatorio" class="view" style="display:none;">
-        <h2>Relatório do período</h2>
-        <div class="card">
-          <label>Atalhos</label>
-          <div class="preset-row">
-            <button class="btn preset-btn" data-preset="7">Últimos 7 dias</button>
-            <button class="btn preset-btn" data-preset="15">Últimos 15 dias</button>
-            <button class="btn preset-btn" data-preset="30">Últimos 30 dias</button>
-            <button class="btn preset-btn" data-preset="mes">Este mês</button>
-            <button class="btn preset-btn" data-preset="tudo">Todo o período</button>
-          </div>
-          <div class="row" style="margin-top:16px;">
-            <div class="date-combo">
-              <label>Data inicial</label>
-              <input type="text" id="dateFromInput" placeholder="dd/mm/aaaa" autocomplete="off" />
-              <div class="date-combo-list" id="dateFromList"></div>
-            </div>
-            <div class="date-combo">
-              <label>Data final</label>
-              <input type="text" id="dateToInput" placeholder="dd/mm/aaaa" autocomplete="off" />
-              <div class="date-combo-list" id="dateToList"></div>
-            </div>
-            <button class="btn primary" id="reportBtn" disabled>Gerar relatório</button>
-            <button class="btn" id="csvBtn" disabled>Baixar CSV</button>
-          </div>
-          <div id="reportOut" style="margin-top:16px;"></div>
-        </div>
-      </section>
-
-      <section id="view-tendencia" class="view" style="display:none;">
-        <h2>Evolução no tempo</h2>
-        <div class="card">
-          <div class="row" style="margin-bottom:14px;">
-            <div><label>Métrica</label>
-              <select id="trendMetric">
-                <option value="empenho">Empenhado</option>
-                <option value="liquidacao">Liquidado</option>
-                <option value="pagamento" selected>Pago</option>
-                <option value="saldoOrc">Saldo de orçamento</option>
-                <option value="saldoLiq">Saldo a liquidar</option>
-                <option value="saldoPagar">Saldo a pagar</option>
-              </select>
-            </div>
-          </div>
-          <p class="muted" id="trendEmpty">Salve ao menos 2 retratos para ver a evolução no tempo.</p>
-          <canvas id="trendChart" height="90" style="display:none;"></canvas>
-        </div>
-      </section>
-
-      <section id="view-categorias" class="view" style="display:none;">
+      <section id="view-categorias" class="view master-only" style="display:none;">
         <h2>Categorias de despesa</h2>
         <div class="card">
-          <p class="muted" style="margin:0 0 12px;">Cada centro de custo recebe uma categoria sugerida automaticamente — ajuste como quiser.</p>
-          <div class="row master-only" style="margin-bottom:14px;">
+          <p class="muted" style="margin:0 0 12px;">Cada centro de custo recebe uma categoria sugerida automaticamente — ajuste como quiser. A cor escolhida aqui é usada nos cartões da Situação atual.</p>
+          <div class="row" style="margin-bottom:14px;">
             <div style="flex:1; min-width:200px;"><label>Nova categoria</label><input type="text" id="newCatInput" placeholder="ex: Eventos institucionais" style="width:100%;" /></div>
             <button class="btn" id="newCatBtn">Adicionar categoria</button>
           </div>
+          <h3 style="font-size:13px; margin-bottom:8px;">Cor de cada categoria</h3>
+          <div id="catColorList" style="margin-bottom:20px;"></div>
+          <h3 style="font-size:13px; margin-bottom:8px;">Categoria de cada centro de custo</h3>
           <div style="overflow-x:auto; max-height:420px; overflow-y:auto;">
             <table id="catTable"><thead><tr><th>Centro de custo</th><th>Categoria</th></tr></thead><tbody></tbody></table>
           </div>
@@ -166,7 +136,6 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

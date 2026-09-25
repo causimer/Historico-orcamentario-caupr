@@ -68,17 +68,26 @@ label { display:block; font-size:11px; color:#928D80; margin-bottom:5px; text-tr
 .cc-saldo-label { font-size:10px; color:#928D80; text-transform:uppercase; letter-spacing:0.02em; margin-bottom:3px; }
 .cc-saldo-value { font-size:13px; font-weight:600; font-family:'IBM Plex Mono', monospace; color:#211F1C; }
 
-.preset-row { display:flex; gap:8px; flex-wrap:wrap; }
-.preset-btn.active { background:#C4703E; color:#FFFFFF; border-color:#C4703E; font-weight:600; }
-.date-combo { position:relative; }
-.date-combo input { width:150px; }
-.date-combo-list {
-  display:none; position:absolute; top:100%; left:0; margin-top:4px; width:220px; max-height:220px; overflow-y:auto;
-  background:#FFFFFF; border:1px solid #D9D2C1; border-radius:6px; box-shadow:0 4px 12px rgba(33,31,28,0.12); z-index:20;
+.multi-combo { position:relative; }
+.multi-combo-panel {
+  display:none; position:absolute; top:100%; left:0; margin-top:4px; width:260px; max-height:300px; overflow-y:auto;
+  background:#FFFFFF; border:1px solid #D9D2C1; border-radius:6px; box-shadow:0 4px 12px rgba(33,31,28,0.12); z-index:20; padding:10px;
 }
-.date-combo-item { padding:8px 12px; font-size:13px; font-family:'IBM Plex Mono', monospace; cursor:pointer; }
-.date-combo-item:hover { background:#F5F1E7; }
-.date-combo-item.no-match { color:#928D80; font-family:'Inter',sans-serif; cursor:default; }
+.multi-combo-panel.open { display:block; }
+.multi-combo-actions { display:flex; gap:8px; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid #F1EDE2; }
+.multi-combo-actions .btn { padding:5px 10px; font-size:11px; }
+.multi-combo-item { display:flex; align-items:center; gap:8px; padding:5px 4px; font-size:13px; cursor:pointer; }
+.multi-combo-item:hover { background:#F5F1E7; border-radius:4px; }
+.multi-combo-item input { margin:0; }
+.multi-combo-swatch { width:11px; height:11px; border-radius:3px; border:1px solid rgba(0,0,0,0.12); flex-shrink:0; }
+
+.slider-row { display:flex; align-items:center; gap:14px; }
+.slider-row input[type=range] { flex:1; accent-color:#C4703E; height:6px; }
+.slider-date { font-family:'IBM Plex Mono', monospace; font-weight:600; font-size:14px; color:#211F1C; min-width:96px; text-align:right; }
+
+.cat-color-row { display:flex; align-items:center; gap:10px; padding:6px 0; }
+.cat-color-row input[type=color] { width:34px; height:28px; padding:2px; border:1px solid #D9D2C1; border-radius:6px; background:#FFFFFF; cursor:pointer; }
+.cat-color-row .cat-color-name { font-size:13px; flex:1; }
 
 @media (max-width: 720px) {
   .app-shell { flex-direction:column; }

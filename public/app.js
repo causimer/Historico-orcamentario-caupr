@@ -130,7 +130,7 @@ function deleteSnapshot(date){
 var DEFAULT_CATS = ['Comissões','Fiscalização','Atendimento','Fundo de Apoio','Projetos','Administrativo/Outros'];
 function loadCategoriasDoc(){
   return getDoc(doc(db, 'config', 'categorias')).then(function(d){
-    return d.exists() ? d.data() : { map: {}, list: DEFAULT_CATS.slice() };
+    return d.exists() ? d.data() : { map: {}, list: DEFAULT_CATS.slice(), colors: {} };
   });
 }
 function saveCategoriasDoc(data){ return setDoc(doc(db, 'config', 'categorias'), data); }
@@ -147,17 +147,14 @@ function suggestCategory(nome){
 }
 
 // ---------- estado em memória (cache local pós-login) ----------
-var catState = { map: {}, list: DEFAULT_CATS.slice() };
+var catState = { map: {}, list: DEFAULT_CATS.slice(), colors: {} };
 var lastCurrentSnap = null;
-var lastReportDiffsRaw = null;
-var lastReportDates = null;
-var lastReportRows = null;
-var trendChartInstance = null;
-var reportChartInstance = null;
+var selectedCategories = null; // null = todas selecionadas
 
 function initDataAndViews(){
   Promise.all([loadCategoriasDoc(), listSnapshotDates()]).then(function(res){
     catState = res[0];
+    if (!catState.colors) catState.colors = {};
     var dates = res[1];
     return Promise.all(dates.map(loadSnapshot)).then(function(snaps){
       var changed = false;
@@ -168,14 +165,16 @@ function initDataAndViews(){
       });
       var save = changed && currentRole === 'master' ? saveCategoriasDoc(catState) : Promise.resolve();
       return save.then(function(){
-        renderFilterCategoriaOptions();
+        selectedCategories = catState.list.slice();
+        renderCatMultiList();
+        updateCatMultiBtnLabel();
+        renderCatColorList();
         renderCatTable();
         renderSnapshotChips(dates);
-        renderDateSelects(dates);
-        lastCurrentSnap = snaps.length ? snaps[snaps.length-1] : null;
+        setupDateSlider(dates, snaps);
+        lastCurrentSnap = dates.length ? snapshotsByDate[dates[dates.length-1]] : null;
         renderCurrent(lastCurrentSnap);
         renderCategorySummary(lastCurrentSnap);
-        renderTrendChart(dates, snaps);
       });
     });
   });
@@ -183,44 +182,117 @@ function initDataAndViews(){
 }
 
 // ---------- filtros ----------
-var filterCategoria = document.getElementById('filterCategoria');
 var filterBusca = document.getElementById('filterBusca');
+var catMultiCombo = document.getElementById('catMultiCombo');
+var catMultiBtn = document.getElementById('catMultiBtn');
+var catMultiPanel = document.getElementById('catMultiPanel');
+var catMultiList = document.getElementById('catMultiList');
+var catMultiAllBtn = document.getElementById('catMultiAll');
+var catMultiNoneBtn = document.getElementById('catMultiNone');
+
 document.getElementById('filterClear').addEventListener('click', function(){
-  filterCategoria.value = '__todas__'; filterBusca.value = ''; refreshFilteredViews();
+  selectedCategories = catState.list.slice();
+  filterBusca.value = '';
+  renderCatMultiList(); updateCatMultiBtnLabel(); refreshFilteredViews();
 });
-filterCategoria.addEventListener('change', refreshFilteredViews);
 filterBusca.addEventListener('input', refreshFilteredViews);
 
+catMultiBtn.addEventListener('click', function(e){
+  e.stopPropagation();
+  catMultiPanel.classList.toggle('open');
+});
+document.addEventListener('click', function(e){
+  if (!catMultiCombo.contains(e.target)) catMultiPanel.classList.remove('open');
+});
+catMultiAllBtn.addEventListener('click', function(){
+  selectedCategories = catState.list.slice();
+  renderCatMultiList(); updateCatMultiBtnLabel(); refreshFilteredViews();
+});
+catMultiNoneBtn.addEventListener('click', function(){
+  selectedCategories = [];
+  renderCatMultiList(); updateCatMultiBtnLabel(); refreshFilteredViews();
+});
+
+function renderCatMultiList(){
+  if (selectedCategories === null) selectedCategories = catState.list.slice();
+  catMultiList.innerHTML = '';
+  catState.list.forEach(function(c){
+    var row = document.createElement('label');
+    row.className = 'multi-combo-item';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = selectedCategories.indexOf(c) !== -1;
+    cb.addEventListener('change', function(){
+      if (cb.checked){ if (selectedCategories.indexOf(c) === -1) selectedCategories.push(c); }
+      else { selectedCategories = selectedCategories.filter(function(x){ return x !== c; }); }
+      updateCatMultiBtnLabel();
+      refreshFilteredViews();
+    });
+    var swatch = document.createElement('span');
+    swatch.className = 'multi-combo-swatch';
+    swatch.style.background = (catState.colors && catState.colors[c]) || '#F5F1E7';
+    var txt = document.createElement('span');
+    txt.textContent = c;
+    row.appendChild(cb); row.appendChild(swatch); row.appendChild(txt);
+    catMultiList.appendChild(row);
+  });
+}
+function updateCatMultiBtnLabel(){
+  if (selectedCategories === null || selectedCategories.length === catState.list.length){ catMultiBtn.textContent = 'Todas as categorias'; }
+  else if (selectedCategories.length === 0){ catMultiBtn.textContent = 'Nenhuma categoria'; }
+  else { catMultiBtn.textContent = selectedCategories.length + ' selecionada(s)'; }
+}
+
 function passesFilter(centro){
-  var cat = filterCategoria.value;
-  if (cat !== '__todas__' && catState.map[centro] !== cat) return false;
+  if (selectedCategories !== null){
+    var cat = catState.map[centro];
+    if (selectedCategories.indexOf(cat) === -1) return false;
+  }
   var busca = stripAccents(filterBusca.value.trim());
   if (busca && stripAccents(centro).indexOf(busca) === -1) return false;
   return true;
 }
 function refreshFilteredViews(){
   if (lastCurrentSnap){ renderCurrent(lastCurrentSnap); renderCategorySummary(lastCurrentSnap); }
-  if (lastReportDiffsRaw) renderReport(lastReportDates[0], lastReportDates[1], lastReportDiffsRaw);
 }
 
-function renderFilterCategoriaOptions(){
-  var current = filterCategoria.value || '__todas__';
-  filterCategoria.innerHTML = '<option value="__todas__">Todas as categorias</option>';
-  catState.list.forEach(function(c){ var o = document.createElement('option'); o.value=c; o.textContent=c; filterCategoria.appendChild(o); });
-  if ([].slice.call(filterCategoria.options).some(function(o){return o.value===current;})) filterCategoria.value = current;
-}
-
-// ---------- categorias (tabela) ----------
+// ---------- categorias (tabela + cores) ----------
 var catTableBody = document.querySelector('#catTable tbody');
+var catColorList = document.getElementById('catColorList');
 document.getElementById('newCatBtn').addEventListener('click', function(){
   var name = (document.getElementById('newCatInput').value || '').trim();
   if (!name || currentRole !== 'master') return;
   if (catState.list.indexOf(name) === -1){
     catState.list.push(name);
-    saveCategoriasDoc(catState).then(function(){ renderFilterCategoriaOptions(); renderCatTable(); });
+    saveCategoriasDoc(catState).then(function(){
+      selectedCategories = catState.list.slice();
+      renderCatMultiList(); updateCatMultiBtnLabel(); renderCatColorList(); renderCatTable();
+    });
   }
   document.getElementById('newCatInput').value = '';
 });
+
+function renderCatColorList(){
+  if (!catColorList) return;
+  if (!catState.colors) catState.colors = {};
+  catColorList.innerHTML = '';
+  catState.list.forEach(function(c){
+    var row = document.createElement('div');
+    row.className = 'cat-color-row';
+    var input = document.createElement('input');
+    input.type = 'color';
+    input.value = catState.colors[c] || '#F5F1E7';
+    input.addEventListener('change', function(){
+      catState.colors[c] = input.value;
+      saveCategoriasDoc(catState).then(function(){ renderCatMultiList(); refreshFilteredViews(); });
+    });
+    var name = document.createElement('span');
+    name.className = 'cat-color-name';
+    name.textContent = c;
+    row.appendChild(input); row.appendChild(name);
+    catColorList.appendChild(row);
+  });
+}
 
 function renderCatTable(){
   var centros = Object.keys(catState.map).sort(function(a,b){return a.localeCompare(b);});
@@ -270,7 +342,8 @@ function renderCurrent(snap){
     var pctEmpBar = Math.min(pctEmp, 100);
     var pctLiqBar = Math.min(pctLiq, 100);
     var pctPagBar = Math.min(pctPag, 100);
-    html += '<div class="cc-card">';
+    var cardColor = (catState.colors && catState.colors[catState.map[r.centro]]) || '';
+    html += '<div class="cc-card"' + (cardColor ? ' style="background:'+cardColor+';"' : '') + '>';
     html += '<div class="cc-name">'+r.centro+'</div>';
     html += '<div class="cc-cat">'+(catState.map[r.centro]||'sem categoria')+'</div>';
     html += '<div class="cc-orcado">Orçado: <strong>R$ '+fmt(r.orcado)+'</strong></div>';
@@ -317,45 +390,11 @@ function renderCategorySummary(snap){
   categorySummaryCard.innerHTML = html;
 }
 
-// ---------- evolução no tempo ----------
-var trendMetric = document.getElementById('trendMetric');
-var trendEmpty = document.getElementById('trendEmpty');
-var trendCanvas = document.getElementById('trendChart');
-trendMetric.addEventListener('change', function(){
-  listSnapshotDates().then(function(dates){ Promise.all(dates.map(loadSnapshot)).then(function(snaps){ renderTrendChart(dates, snaps); }); });
-});
-function renderTrendChart(dates, snaps){
-  if (dates.length < 2){
-    trendEmpty.style.display='block'; trendEmpty.textContent='Salve ao menos 2 retratos para ver a evolução no tempo.'; trendCanvas.style.display='none';
-    if (trendChartInstance){ trendChartInstance.destroy(); trendChartInstance=null; }
-    return;
-  }
-  if (typeof Chart === 'undefined'){
-    trendEmpty.style.display='block'; trendEmpty.textContent='Não consegui carregar a biblioteca de gráficos.'; trendCanvas.style.display='none';
-    return;
-  }
-  var metric = trendMetric.value;
-  var values = snaps.map(function(snap){ return snap.rows.filter(function(r){return passesFilter(r.centro);}).reduce(function(a,r){return a+(r[metric]||0);},0); });
-  trendEmpty.style.display='none'; trendCanvas.style.display='block';
-  if (trendChartInstance) trendChartInstance.destroy();
-  trendChartInstance = new Chart(trendCanvas, {
-    type:'line',
-    data: { labels: dates.map(fmtDate), datasets: [{ label: trendMetric.options[trendMetric.selectedIndex].text, data: values, borderColor:'#C4703E', backgroundColor:'rgba(196,112,62,0.12)', tension:0.25, fill:true, pointRadius:3, pointBackgroundColor:'#C4703E' }] },
-    options: { responsive:true, plugins:{legend:{display:false}}, scales:{ y:{ ticks:{ callback:function(v){return 'R$ '+fmt(v);} }, grid:{color:'#E0DACB'} }, x:{ grid:{display:false} } } }
-  });
-}
-
 // ---------- retratos (upload) — só master ----------
 var fileInput = document.getElementById('fileInput');
 var saveBtn = document.getElementById('saveBtn');
 var parseStatus = document.getElementById('parseStatus');
 var chipsWrap = document.getElementById('chipsWrap');
-var dateFromInput = document.getElementById('dateFromInput');
-var dateToInput = document.getElementById('dateToInput');
-var dateFromList = document.getElementById('dateFromList');
-var dateToList = document.getElementById('dateToList');
-var reportBtn = document.getElementById('reportBtn');
-var csvBtn = document.getElementById('csvBtn');
 
 function extractDateFromFilename(name){
   var matches = name.match(/\d{8}/g);
@@ -471,141 +510,31 @@ function renderSnapshotChips(dates){
   });
 }
 var availableDates = [];
+var snapshotsByDate = {};
+var dateSlider = document.getElementById('dateSlider');
+var dateSliderLabel = document.getElementById('dateSliderLabel');
 
-function setDateComboValue(inputEl, iso){
-  inputEl.value = iso ? fmtDate(iso) : '';
-  inputEl.dataset.iso = iso || '';
-}
-function getDateComboValue(inputEl){ return inputEl.dataset.iso || ''; }
-
-function setupDateCombo(inputEl, listEl){
-  function renderList(filterText){
-    var f = stripAccents(filterText || '');
-    var matches = availableDates.filter(function(d){ return stripAccents(fmtDate(d)).indexOf(f) !== -1; });
-    listEl.innerHTML = '';
-    if (!matches.length){
-      listEl.innerHTML = '<div class="date-combo-item no-match">Nenhuma data encontrada</div>';
-    } else {
-      matches.forEach(function(d){
-        var item = document.createElement('div');
-        item.className = 'date-combo-item';
-        item.textContent = fmtDate(d);
-        item.addEventListener('mousedown', function(e){
-          e.preventDefault();
-          setDateComboValue(inputEl, d);
-          listEl.style.display = 'none';
-        });
-        listEl.appendChild(item);
-      });
-    }
-    listEl.style.display = 'block';
-  }
-  inputEl.addEventListener('focus', function(){ renderList(inputEl.value); });
-  inputEl.addEventListener('input', function(){ inputEl.dataset.iso = ''; renderList(inputEl.value); });
-  inputEl.addEventListener('blur', function(){ setTimeout(function(){ listEl.style.display = 'none'; }, 150); });
-}
-setupDateCombo(dateFromInput, dateFromList);
-setupDateCombo(dateToInput, dateToList);
-
-function renderDateSelects(dates){
+function setupDateSlider(dates, snaps){
   availableDates = dates;
-  if (dates.length){
-    setDateComboValue(dateFromInput, dates[0]);
-    setDateComboValue(dateToInput, dates[dates.length-1]);
+  snapshotsByDate = {};
+  snaps.forEach(function(s, i){ snapshotsByDate[dates[i]] = s; });
+  if (!dates.length){
+    dateSlider.min = 0; dateSlider.max = 0; dateSlider.value = 0; dateSlider.disabled = true;
+    dateSliderLabel.textContent = '—';
+    return;
   }
-  reportBtn.disabled = dates.length < 2;
+  dateSlider.disabled = false;
+  dateSlider.min = 0; dateSlider.max = dates.length - 1; dateSlider.value = dates.length - 1;
+  dateSliderLabel.textContent = fmtDate(dates[dates.length - 1]);
 }
-
-document.querySelectorAll('.preset-btn').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    if (!availableDates.length) return;
-    document.querySelectorAll('.preset-btn').forEach(function(b){ b.classList.remove('active'); });
-    btn.classList.add('active');
-    var endISO = availableDates[availableDates.length - 1];
-    var preset = btn.dataset.preset;
-    var startISO;
-    if (preset === 'tudo'){
-      startISO = availableDates[0];
-    } else if (preset === 'mes'){
-      var endD = new Date(endISO + 'T00:00:00');
-      var monthStart = endD.getFullYear() + '-' + String(endD.getMonth()+1).padStart(2,'0') + '-01';
-      startISO = availableDates.find(function(d){ return d >= monthStart; }) || availableDates[0];
-    } else {
-      var days = parseInt(preset, 10);
-      var target = new Date(endISO + 'T00:00:00');
-      target.setDate(target.getDate() - days);
-      var targetISO = target.toISOString().slice(0,10);
-      startISO = availableDates.find(function(d){ return d >= targetISO; }) || availableDates[0];
-    }
-    setDateComboValue(dateFromInput, startISO);
-    setDateComboValue(dateToInput, endISO);
-  });
-});
-
-
-// ---------- relatório do período ----------
-var reportOut = document.getElementById('reportOut');
-if (reportBtn) reportBtn.addEventListener('click', function(){
-  var d1=getDateComboValue(dateFromInput), d2=getDateComboValue(dateToInput);
-  if (!d1||!d2){ reportOut.innerHTML = '<p class="muted">Escolha uma data inicial e final válidas (use os atalhos ou digite e escolha da lista).</p>'; return; }
-  reportBtn.disabled=true; reportBtn.textContent='Gerando...';
-  Promise.all([loadSnapshot(d1), loadSnapshot(d2)]).then(function(res){
-    var snapA=res[0], snapB=res[1];
-    var mapA={}; snapA.rows.forEach(function(r){mapA[r.centro]=r;});
-    var mapB={}; snapB.rows.forEach(function(r){mapB[r.centro]=r;});
-    var centros = Object.keys(mapB).sort(function(a,b){return a.localeCompare(b);});
-    var diffs = centros.map(function(c){
-      var a=mapA[c], b=mapB[c];
-      return { centro:c, orcado:b.orcado, orcadoMudou: a ? (a.orcado!==b.orcado) : false,
-        dEmpenho: b.empenho-(a?a.empenho:0), dLiquidacao: (b.liquidacao||0)-(a?(a.liquidacao||0):0), dPagamento: b.pagamento-(a?a.pagamento:0),
-        dSaldoOrc: b.saldoOrc-(a?a.saldoOrc:0), dSaldoLiq: b.saldoLiq-(a?a.saldoLiq:0), dSaldoPagar: (b.saldoPagar||0)-(a?(a.saldoPagar||0):0), semDadoInicial: !a };
-    });
-    lastReportDiffsRaw = diffs; lastReportDates=[d1,d2];
-    renderReport(d1,d2,diffs);
-    reportBtn.disabled=false; reportBtn.textContent='Gerar relatório'; csvBtn.disabled=false;
-  }).catch(function(err){ reportOut.innerHTML='<p class="muted">Erro: '+err.message+'</p>'; reportBtn.disabled=false; reportBtn.textContent='Gerar relatório'; });
-});
-
-function renderReport(d1, d2, diffsAll){
-  var diffs = diffsAll.filter(function(r){ return passesFilter(r.centro); });
-  lastReportRows = diffs;
-  var tot={dEmpenho:0,dLiquidacao:0,dPagamento:0,dSaldoOrc:0,dSaldoLiq:0,dSaldoPagar:0};
-  diffs.forEach(function(r){ tot.dEmpenho+=r.dEmpenho; tot.dLiquidacao+=r.dLiquidacao; tot.dPagamento+=r.dPagamento; tot.dSaldoOrc+=r.dSaldoOrc; tot.dSaldoLiq+=r.dSaldoLiq; tot.dSaldoPagar+=r.dSaldoPagar; });
-  var days = Math.round((new Date(d2)-new Date(d1))/86400000);
-  var html = '<p class="muted" style="margin:0 0 12px;">'+fmtDate(d1)+' → '+fmtDate(d2)+' · '+days+' dias · '+diffs.length+' de '+diffsAll.length+' centros exibidos</p>';
-  if (!diffs.length){ html += '<p class="muted">Nenhum centro corresponde ao filtro atual.</p>'; reportOut.innerHTML = html; return; }
-  html += '<div style="overflow-x:auto;"><table><thead><tr><th>Centro de custo</th><th>Categoria</th><th>Orçado</th><th>Δ empenhado</th><th>Δ liquidado</th><th>Δ pago</th><th>Δ saldo orçamento</th><th>Δ saldo a liquidar</th><th>Δ saldo a pagar</th></tr></thead><tbody>';
-  diffs.forEach(function(r){
-    html += '<tr><td>'+r.centro+(r.semDadoInicial?' <span class="muted">(novo)</span>':'')+'</td><td>'+(catState.map[r.centro]||'—')+'</td><td>'+fmt(r.orcado)+(r.orcadoMudou?' <span class="muted">*</span>':'')+'</td>';
-    html += '<td class="'+(r.dEmpenho>=0?'pos':'neg')+'">'+fmtSigned(r.dEmpenho)+'</td><td class="'+(r.dLiquidacao>=0?'pos':'neg')+'">'+fmtSigned(r.dLiquidacao)+'</td><td class="'+(r.dPagamento>=0?'pos':'neg')+'">'+fmtSigned(r.dPagamento)+'</td>';
-    html += '<td class="'+(r.dSaldoOrc>=0?'pos':'neg')+'">'+fmtSigned(r.dSaldoOrc)+'</td><td class="'+(r.dSaldoLiq>=0?'pos':'neg')+'">'+fmtSigned(r.dSaldoLiq)+'</td><td class="'+(r.dSaldoPagar>=0?'pos':'neg')+'">'+fmtSigned(r.dSaldoPagar)+'</td></tr>';
-  });
-  html += '<tr class="total"><td>Total</td><td></td><td>—</td><td class="'+(tot.dEmpenho>=0?'pos':'neg')+'">'+fmtSigned(tot.dEmpenho)+'</td><td class="'+(tot.dLiquidacao>=0?'pos':'neg')+'">'+fmtSigned(tot.dLiquidacao)+'</td><td class="'+(tot.dPagamento>=0?'pos':'neg')+'">'+fmtSigned(tot.dPagamento)+'</td><td class="'+(tot.dSaldoOrc>=0?'pos':'neg')+'">'+fmtSigned(tot.dSaldoOrc)+'</td><td class="'+(tot.dSaldoLiq>=0?'pos':'neg')+'">'+fmtSigned(tot.dSaldoLiq)+'</td><td class="'+(tot.dSaldoPagar>=0?'pos':'neg')+'">'+fmtSigned(tot.dSaldoPagar)+'</td></tr></tbody></table></div>';
-  var hasChanged = diffs.some(function(r){return r.orcadoMudou;});
-  if (hasChanged) html += '<p class="muted" style="margin-top:10px;">* o orçado mudou entre as datas.</p>';
-  html += '<div style="margin-top:20px;"><canvas id="reportChart" height="90"></canvas></div>';
-  reportOut.innerHTML = html;
-
-  if (typeof Chart === 'undefined'){ document.getElementById('reportChart').outerHTML = '<p class="muted">Não consegui carregar a biblioteca de gráficos.</p>'; return; }
-  var byCat = {};
-  diffs.forEach(function(r){ var cat = catState.map[r.centro] || 'Sem categoria'; byCat[cat] = (byCat[cat]||0) + r.dPagamento; });
-  var catLabels = Object.keys(byCat).sort(); var catValues = catLabels.map(function(c){return byCat[c];});
-  if (reportChartInstance) reportChartInstance.destroy();
-  reportChartInstance = new Chart(document.getElementById('reportChart'), {
-    type:'bar',
-    data:{ labels:catLabels, datasets:[{ label:'Δ pago no período', data:catValues, backgroundColor: catValues.map(function(v){return v>=0?'#5F8054':'#B5473A';}) }] },
-    options:{ responsive:true, plugins:{legend:{display:false}, title:{display:true, text:'Δ pago por categoria', color:'#211F1C', font:{size:12}}}, scales:{ y:{ ticks:{callback:function(v){return 'R$ '+fmt(v);}}, grid:{color:'#E0DACB'} }, x:{grid:{display:false}} } }
-  });
-}
-
-if (csvBtn) csvBtn.addEventListener('click', function(){
-  if (!lastReportRows) return;
-  var lines = [['Centro de custo','Categoria','Orcado','Delta Empenhado','Delta Liquidado','Delta Pago','Delta Saldo Orcamento','Delta Saldo a Liquidar','Delta Saldo a Pagar'].join(';')];
-  lastReportRows.forEach(function(r){ lines.push([r.centro, catState.map[r.centro]||'', r.orcado, r.dEmpenho, r.dLiquidacao, r.dPagamento, r.dSaldoOrc, r.dSaldoLiq, r.dSaldoPagar].join(';')); });
-  var blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8;'});
-  var url = URL.createObjectURL(blob); var a = document.createElement('a');
-  a.href=url; a.download='relatorio_'+getDateComboValue(dateFromInput)+'_a_'+getDateComboValue(dateToInput)+'.csv';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+dateSlider.addEventListener('input', function(){
+  var idx = parseInt(dateSlider.value, 10);
+  var date = availableDates[idx];
+  if (!date) return;
+  dateSliderLabel.textContent = fmtDate(date);
+  lastCurrentSnap = snapshotsByDate[date];
+  renderCurrent(lastCurrentSnap);
+  renderCategorySummary(lastCurrentSnap);
 });
 
 // ---------- backup ----------

@@ -452,6 +452,87 @@ function isRelatorioBrutoSiscont(data){
   return false;
 }
 
+// ---------- mapeamento de centro de custo: código bruto do SISCONT -> nome padronizado ----------
+// Preserva a numeração sequencial e a nomenclatura da metodologia anterior
+// (ex.: "1.01.01" do SISCONT -> "02 - ATIVIDADES CEF"), pra bater com as
+// categorias já cadastradas e manter a ordem de exibição de sempre.
+// Válido para o ano de 2027; a reparametrização anual é responsabilidade do master.
+var MAPEAMENTO_CENTROS = {
+  '1.07': { seq: 1, nomeFinal: 'REALIZAÇÃO DAS PLENÁRIAS CAU/PR' },
+  '1.01.01': { seq: 2, nomeFinal: 'ATIVIDADES CEF' },
+  '1.02.01': { seq: 3, nomeFinal: 'ATIVIDADES - CED' },
+  '1.03.01': { seq: 4, nomeFinal: 'ATIVIDADES CEP' },
+  '1.05.01': { seq: 5, nomeFinal: 'ATIVIDADES COA' },
+  '1.04.01': { seq: 6, nomeFinal: 'ATIVIDADES CPF' },
+  '3.01': { seq: 7, nomeFinal: 'COLEGIADOS DAS ENTIDADES ESTADUAIS DE ARQUITETOS E URBANISTAS (CEAU-CAU/PR)' },
+  '2.02': { seq: 8, nomeFinal: 'COMISSÃO DE POLÍTICAS URBANAS E AMBIENTAL DO CAU/PR (CPUA/PR)' },
+  '3.02': { seq: 9, nomeFinal: 'CONSELHO DIRETOR CAU/PR' },
+  '4.01.05.01': { seq: 10, nomeFinal: 'ATIVIDADES DA PRESIDÊNCIA' },
+  '4.02.07.01': { seq: 11, nomeFinal: 'ATIVIDADES GERÊNCIA GERAL' },
+  '4.02.05.1.01': { seq: 12, nomeFinal: 'ATIVIDADES GERÊNCIA DE FISCALIZAÇÃO (SEDE)' },
+  '4.02.05.1.02': { seq: 14, nomeFinal: 'ATIVIDADES GERÊNCIA DE FISCALIZAÇÃO - CASCAVEL' },
+  '4.02.05.1.03': { seq: 15, nomeFinal: 'ATIVIDADES GERÊNCIA DE FISCALIZAÇÃO - LONDRINA' },
+  '4.02.05.1.04': { seq: 16, nomeFinal: 'ATIVIDADES GERÊNCIA DE FISCALIZAÇÃO - MARINGÁ' },
+  '4.02.05.1.05': { seq: 17, nomeFinal: 'ATIVIDADES GERÊNCIA DE FISCALIZAÇÃO - PATO BRANCO' },
+  '4.02.05.1.07': { seq: 18, nomeFinal: 'ATIVIDADES GERÊNCIA DE FISCALIZAÇÃO - CSC DA FISCALIZAÇÃO' },
+  '4.02.06.1.01': { seq: 19, nomeFinal: 'ATIVIDADES GERÊNCIA DE ATENDIMENTO (SEDE)' },
+  '4.02.06.1.03': { seq: 22, nomeFinal: 'ATIVIDADES GERÊNCIA DE ATENDIMENTO - LONDRINA' },
+  '4.02.06.1.07': { seq: 25, nomeFinal: 'ATIVIDADES GERÊNCIA DE ATENDIMENTO - CSC DO ATENDIMENTO' },
+  '4.02.03.01.01': { seq: 26, nomeFinal: 'ATIVIDADES GERÊNCIA ADMINISTRATIVA (SEDE)' },
+  '4.02.03.01.02': { seq: 28, nomeFinal: 'ATIVIDADES GERÊNCIA ADMINISTRATIVA - CASCAVEL' },
+  '4.02.03.01.03': { seq: 29, nomeFinal: 'ATIVIDADES GERÊNCIA ADMINISTRATIVA - LONDRINA' },
+  '4.02.03.01.04': { seq: 30, nomeFinal: 'ATIVIDADES GERÊNCIA ADMINISTRATIVA - MARINGÁ' },
+  '4.02.03.01.05': { seq: 31, nomeFinal: 'ATIVIDADES GERÊNCIA ADMINISTRATIVA - PATO BRANCO' },
+  '4.02.03.01.07': { seq: 32, nomeFinal: 'ATIVIDADES GERÊNCIA ADMINISTRATIVA - CAPACITAÇÃO E TREINAMENTOS' },
+  '4.01.04.01.01': { seq: 33, nomeFinal: 'ATIVIDADES ASSESSORIA DE COMUNICAÇÃO' },
+  '4.02.04.01.01': { seq: 34, nomeFinal: 'ATIVIDADES GERÊNCIA FINANCEIRA' },
+  '4.02.04.01.02': { seq: 35, nomeFinal: 'FUNDO DE APOIO - CAU BÁSICO' },
+  '4.01.02.01': { seq: 36, nomeFinal: 'ASSESSORIA JURÍDICA' },
+  '4.02.04.01.03': { seq: 37, nomeFinal: 'RESERVA DE CONTINGÊNCIA' },
+  '4.01.05.02.18': { seq: 38, nomeFinal: 'ASSISTÊNCIA TÉCNICA EM HABITAÇÃO DE INTERESSE SOCIAL (ATHIS)' },
+  '4.02.03.02.02': { seq: 40, nomeFinal: 'PROJETOS GERÊNCIA ADMINISTRATIVA - PDTI - PLANO DIRETOR DE TECNOLOGIA DA INFORMAÇÃO' },
+  '4.02.03.02.05': { seq: 41, nomeFinal: 'PROJETOS GERÊNCIA ADMINISTRATIVA - REFORMA DA SEDE PRÓPRIA' },
+  '4.01.04.02.03': { seq: 43, nomeFinal: 'PROJETOS ASSESSORIA DE COMUNICAÇÃO - DIA DO ARQUITETO E URBANISTA' },
+  '4.01.05.02.11': { seq: 46, nomeFinal: 'PROJETO ESPECÍFICO/ESTRATÉGICO- CAU EDUCA - CADERNO DE ATIVIDADES DA TURMA DA MÔNICA' },
+  '4.01.04.02.14': { seq: 47, nomeFinal: 'PROJETO FESTIVAL DA ARQUITETURA' },
+  '4.02.03.02.07': { seq: 48, nomeFinal: 'PROJETO AQUISIÇÃO DE IMÓVEIS NAS REGIONAIS DO CAU/PR' },
+  '4.01.05.02.12': { seq: 49, nomeFinal: 'PROJETO CÂMARAS TÉCNICAS' },
+  '4.01.04.02.01': { seq: 50, nomeFinal: 'PROJETOS ASSESSORIA DE COMUNICAÇÃO - PATROCINIOS' },
+  '4.02.07.02.03': { seq: 51, nomeFinal: 'PROJETO ESTRATÉGICO TEIA DE SOLUÇÕES EM ARQUITETURA E URBANISMO P/ DESENVOLV. SUSTENTÁVEL DO PR' },
+  '4.01.05.02.14': { seq: 53, nomeFinal: 'PROJETO ESTRATÉGICO AÇÕES PRIORITÁRIAS DO CEAU - PR (PRODUZIR VIDEOCATS)' },
+  '4.02.07.02.02': { seq: 55, nomeFinal: 'PROJETO COMISSÃO TEMPORÁRIA DE REVISÃO DO MÉTODOS DE COMUNICAÇÃO' },
+  '2.13': { seq: 56, nomeFinal: 'PROJETO CPUA - COMISSÃO TEMPORÁRIA PARA PROMOÇÃO DOS CONCURSOS PÚBLICOS' },
+  '2.17': { seq: 57, nomeFinal: 'COMISSÃO TEMPORÁRIA DE ANÁLISE DE PROCESSO ÉTICO' },
+  '2.18': { seq: 58, nomeFinal: 'COMISSÕES TEMPORÁRIAS DE PROCESSOS DE SINDICÂNCIAS NO ÂMBITO DO CAU/PR' },
+  '4.02.07.02.01': { seq: 59, nomeFinal: 'PROJETO ESPECÍFICO/ESTRATÉGICO - LGPD - LEI DE PROTEÇÃO DE DADOS PESSOAIS' },
+  '2.20': { seq: 60, nomeFinal: 'COMISSÃO ESPECIAL DE POLÍTICAS AFIRMATIVAS' },
+  '2.19': { seq: 61, nomeFinal: 'COMISSÃO ESPECIAL DE ASSISTÊNCIA TÉCNICA DE HABITAÇÃO DE INTERESSE SOCIAL (CATHIS)' },
+  '1.08': { seq: 62, nomeFinal: 'COMISSÃO PERMANENTE DE ÉTICA E INTEGRIDADE' },
+  '2.04': { seq: 63, nomeFinal: 'COMISSÃO ELEITORAL TEMPORÁRIA' },
+  '4.01.05.02.15': { seq: 64, nomeFinal: 'CÂMARA TEMÁTICA DE PATRIMÔNIO' },
+  '1.09.02.01': { seq: 65, nomeFinal: 'CÂMARA TEMÁTICA DE EMERGÊNCIAS CLIMÁTICAS E CIDADES RESILIENTES' },
+  '4.01.05.02.16': { seq: 66, nomeFinal: 'CÂMARA TEMÁTICA DE EMPREENDEDORISMO E INOVAÇÃO' },
+  '4.02.05.2.11': { seq: 67, nomeFinal: 'PROJETO ESTRATÉGICO - DESENVOLVER PLATAFORMA DE INTEGRAÇÃO E INTELIGÊNCIA DE DADOS DA FISCALIZAÇÃO' },
+  '4.02.05.2.12': { seq: 68, nomeFinal: 'PROJETO ESTRATÉGICO - IMPLANTAÇÃO DO PROGRAMA CAU/JR NO ÂMBITO DO CAU/PR' },
+  '4.01.05.02.17': { seq: 69, nomeFinal: 'PROJETO ESTRATÉGICO - IMPLANTAÇÃO DO PROGRAMA DE VOTAÇÃO NO ÂMBITO DO CAU/PR' },
+  '4.02.03.02.08': { seq: 70, nomeFinal: 'PROJETOS GERÊNCIA ADMINISTRATIVA - SISTEMA DE POWER BI (BUSINESS INTELIGENCE)' },
+  '4.02.03.02.09': { seq: 71, nomeFinal: 'PROJETOS GERÊNCIA ADMINISTRATIVA - SISTEMA DE CHAT BOT' },
+  '4.02.06.2.05': { seq: 72, nomeFinal: 'PROJETO ESTRATÉGICO - DIAGNÓSTICO E IMPLEMENTAÇÃO DA GESTÃO DOCUMENTAL DO CAU/PR' },
+  '1.02.02.01': { seq: 73, nomeFinal: 'PROJETO ESPECÍFICO/ESTRATÉGICO - AÇÕES PRIORITÁRIAS DA CED' },
+  '1.02.02.06': { seq: 74, nomeFinal: 'PROJETO ESTRATÉGICO - REALIZAR CAMPANHA EDUCACIOAL-PREVENTIVA SOBRE TEMAS À ÉTICA E DISCIPLINA' },
+  '1.09.02.02': { seq: 75, nomeFinal: 'PROJETO ESTRATÉGICO-PUBLIC.MANUAL PARA SOLUÇÕES BASEADAS NA NATUREZA EM CIDADES E COMUNIDADES DO PR' },
+  '1.09.02.03': { seq: 76, nomeFinal: 'PROJETO ESTRATÉGICO-EDITAL P/ OFICINAS DE SOLUÇÕES BASEADAS NA NATUREZA EM CIDADES E COMUNIDADES' },
+  '1.09.02.04': { seq: 77, nomeFinal: 'PROJETO ESTRATÉGICO-EVENTO "POLÍTICAS AFIRMATIVAS NO CAU" E LANÇAMENTO DE PESQUISA JUNTO DAS IES' }
+};
+
+function resolverNomeCentro(centroBruto){
+  var codigo = centroBruto.indexOf(' - ') !== -1 ? centroBruto.split(' - ')[0].trim() : centroBruto.trim();
+  var m = MAPEAMENTO_CENTROS[codigo];
+  if (!m) return { nome: centroBruto, novo: true };
+  var seqPadded = (m.seq < 10 ? '0' : '') + m.seq;
+  return { nome: seqPadded + ' - ' + m.nomeFinal, novo: false };
+}
+
 function parseDetalhadoFromData(data){
   var centros = {};
   var totalGeral = {}; METRICAS_DETALHE.forEach(function(m){ totalGeral[m]=0; });
@@ -474,13 +555,17 @@ function parseDetalhadoFromData(data){
   for (var i=2;i<data.length;i++){
     var row = data[i] || [];
     var conta = textoLimpo(row[0]);
-    var centro = textoLimpo(row[1]);
+    var centroBruto = textoLimpo(row[1]);
+    var centro = centroBruto ? resolverNomeCentro(centroBruto).nome : '';
     var naData1 = row[3], noExercicio1 = row[4];
     var naData2 = row[6], noExercicio2 = row[7];
 
     if (conta && centro){
       fecha();
       contaAtual = conta; centroAtual = centro; valoresAtuais = zera(); posicao = 0;
+      if (centroBruto && resolverNomeCentro(centroBruto).novo && avisos.indexOf('Centro de custo não mapeado: "'+centroBruto+'" — usando o nome bruto do SISCONT.') === -1){
+        avisos.push('Centro de custo não mapeado: "'+centroBruto+'" — usando o nome bruto do SISCONT.');
+      }
     }
     if (!contaAtual) continue;
 

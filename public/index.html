@@ -78,6 +78,13 @@
         <div class="card" id="categorySummaryCard"><p class="muted">Carregando...</p></div>
       </section>
 
+      <section id="view-detalheCentro" class="view" style="display:none;">
+        <button class="btn" id="detalheVoltarBtn" style="margin-bottom:16px;">← Voltar</button>
+        <h2 id="detalheCentroTitulo">Centro de custo</h2>
+        <p class="muted" id="detalheCentroData" style="margin:2px 0 18px;"></p>
+        <div class="card" id="detalheCentroCard"><p class="muted">Carregando...</p></div>
+      </section>
+
       <section id="view-categorias" class="view master-only" style="display:none;">
         <h2>Categorias de despesa</h2>
         <div class="card">
@@ -99,7 +106,7 @@
         <h2>Retratos (upload)</h2>
         <div class="card">
           <div class="row">
-            <div><label>Planilha(s) do dia (.xlsx) — pode selecionar vários arquivos de uma vez, a data de cada um é lida do nome do arquivo</label><input type="file" id="fileInput" accept=".xlsx,.xls" multiple /></div>
+            <div><label>Relatório de Disponibilidade Orçamentária bruto do SISCONT (.xlsx/.xls) — pode selecionar vários arquivos de uma vez, a data de cada um é lida do nome do arquivo</label><input type="file" id="fileInput" accept=".xlsx,.xls" multiple /></div>
             <button class="btn primary" id="saveBtn" disabled>Salvar retrato(s)</button>
           </div>
           <p class="muted" id="parseStatus" style="margin:12px 0 0;"></p>

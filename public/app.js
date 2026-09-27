@@ -110,20 +110,43 @@ function fmt(n){ if (n === null || n === undefined || isNaN(n)) return '—'; re
 function fmtSigned(n){ if (n === null || n === undefined || isNaN(n)) return '—'; var s = fmt(Math.abs(n)); return (n<0?'−':(n>0?'+':'')) + s; }
 function fmtDate(iso){ var p = iso.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
 
-// ---------- Firestore: snapshots ----------
+// ---------- Firestore: snapshots (retrato por data, com detalhe por conta contábil) ----------
+// Coleção 'snapshotsDetalhe': cada retrato guarda, por centro de custo, o
+// subtotal e a lista de contas contábeis. É a única fonte de dados do
+// sistema — alimentada pelo upload do relatório bruto do SISCONT.
 function listSnapshotDates(){
-  return getDocs(collection(db, 'snapshots')).then(function(qs){
+  return getDocs(collection(db, 'snapshotsDetalhe')).then(function(qs){
     var dates = []; qs.forEach(function(d){ dates.push(d.id); }); return dates.sort();
   });
 }
 function loadSnapshot(date){
-  return getDoc(doc(db, 'snapshots', date)).then(function(d){ return d.exists() ? d.data() : null; });
+  return getDoc(doc(db, 'snapshotsDetalhe', date)).then(function(d){ return d.exists() ? d.data() : null; });
 }
-function saveSnapshot(date, rows){
-  return setDoc(doc(db, 'snapshots', date), { date: date, rows: rows, savedAt: new Date().toISOString(), ownerId: currentUser.uid });
+function saveSnapshot(date, centros, totalGeral){
+  return setDoc(doc(db, 'snapshotsDetalhe', date), { date: date, centros: centros, totalGeral: totalGeral, savedAt: new Date().toISOString(), ownerId: currentUser.uid });
 }
 function deleteSnapshot(date){
-  return deleteDoc(doc(db, 'snapshots', date));
+  return deleteDoc(doc(db, 'snapshotsDetalhe', date));
+}
+
+// Converte o retrato (centros -> subtotal) numa lista simples de linhas,
+// no formato usado pelas telas de "Situação atual" e "Resumo por categoria".
+function rowsFromSnapshot(snap){
+  if (!snap || !snap.centros) return [];
+  return Object.keys(snap.centros).map(function(centro){
+    var s = snap.centros[centro].subtotal;
+    return { centro: centro, Orc_Desbloq: s.Orc_Desbloq, Empenhado: s.Empenhado, Liquidado: s.Liquidado, Pago: s.Pago };
+  });
+}
+
+// ---------- Firestore: apelidos de conta contábil ----------
+function loadApelidosDoc(){
+  return getDoc(doc(db, 'config', 'apelidosContas')).then(function(d){ return d.exists() ? d.data() : { map:{} }; });
+}
+function saveApelidosDoc(data){ return setDoc(doc(db, 'config', 'apelidosContas'), data); }
+var apelidosState = { map:{} };
+function nomeExibicaoConta(conta){
+  return (apelidosState.map && apelidosState.map[conta]) ? apelidosState.map[conta] : conta;
 }
 
 // ---------- Firestore: categorias ----------
@@ -152,14 +175,16 @@ var lastCurrentSnap = null;
 var selectedCategories = null; // null = todas selecionadas
 
 function initDataAndViews(){
-  Promise.all([loadCategoriasDoc(), listSnapshotDates()]).then(function(res){
+  Promise.all([loadCategoriasDoc(), listSnapshotDates(), loadApelidosDoc()]).then(function(res){
     catState = res[0];
     if (!catState.colors) catState.colors = {};
     var dates = res[1];
+    apelidosState = res[2];
+    if (!apelidosState.map) apelidosState.map = {};
     return Promise.all(dates.map(loadSnapshot)).then(function(snaps){
       var changed = false;
       snaps.forEach(function(snap){
-        snap.rows.forEach(function(r){
+        rowsFromSnapshot(snap).forEach(function(r){
           if (!catState.map[r.centro]){ catState.map[r.centro] = suggestCategory(r.centro); changed = true; }
         });
       });
@@ -321,70 +346,69 @@ function renderCatTable(){
 // ---------- situação atual ----------
 var currentCard = document.getElementById('currentCard');
 function renderCurrent(snap){
-  if (!snap || !snap.rows.length){ currentCard.innerHTML = '<p class="muted">Nenhum retrato salvo ainda.</p>'; return; }
-  var rows = snap.rows.filter(function(r){ return passesFilter(r.centro); }).sort(function(a,b){return a.centro.localeCompare(b.centro);});
-  var tot = {orcado:0,empenho:0,liquidacao:0,pagamento:0,saldoOrc:0,saldoLiq:0,saldoPagar:0};
-  rows.forEach(function(r){ tot.orcado+=r.orcado; tot.empenho+=r.empenho; tot.liquidacao+=(r.liquidacao||0); tot.pagamento+=r.pagamento; tot.saldoOrc+=r.saldoOrc; tot.saldoLiq+=r.saldoLiq; tot.saldoPagar+=(r.saldoPagar||0); });
-  var pct = tot.orcado ? (tot.pagamento/tot.orcado*100) : 0;
-  var html = '<p class="muted" style="margin:0 0 12px;">Referente a ' + fmtDate(snap.date) + ' · ' + rows.length + ' de ' + snap.rows.length + ' centros exibidos</p>';
+  var todasRows = rowsFromSnapshot(snap);
+  if (!todasRows.length){ currentCard.innerHTML = '<p class="muted">Nenhum retrato salvo ainda.</p>'; return; }
+  var rows = todasRows.filter(function(r){ return passesFilter(r.centro); }).sort(function(a,b){return a.centro.localeCompare(b.centro);});
+  var tot = {Orc_Desbloq:0, Empenhado:0, Liquidado:0, Pago:0};
+  rows.forEach(function(r){ tot.Orc_Desbloq+=r.Orc_Desbloq; tot.Empenhado+=r.Empenhado; tot.Liquidado+=r.Liquidado; tot.Pago+=r.Pago; });
+  var saldoAEmpenharTotal = tot.Orc_Desbloq - tot.Empenhado;
+  var pct = tot.Orc_Desbloq ? (tot.Pago/tot.Orc_Desbloq*100) : 0;
+  var html = '<p class="muted" style="margin:0 0 12px;">Referente a ' + fmtDate(snap.date) + ' · ' + rows.length + ' de ' + todasRows.length + ' centros exibidos</p>';
   html += '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px; margin-bottom:18px;">';
-  html += '<div class="metric"><div class="label">Orçado total</div><div class="value">R$ '+fmt(tot.orcado)+'</div></div>';
-  html += '<div class="metric"><div class="label">Pago até aqui</div><div class="value">R$ '+fmt(tot.pagamento)+'</div></div>';
-  html += '<div class="metric blue"><div class="label">Saldo de orçamento</div><div class="value">R$ '+fmt(tot.saldoOrc)+'</div></div>';
+  html += '<div class="metric"><div class="label">Orçamento disponível</div><div class="value">R$ '+fmt(tot.Orc_Desbloq)+'</div></div>';
+  html += '<div class="metric"><div class="label">Pago até aqui</div><div class="value">R$ '+fmt(tot.Pago)+'</div></div>';
+  html += '<div class="metric'+(saldoAEmpenharTotal<0?' ':' blue')+'"><div class="label">Saldo à empenhar</div><div class="value'+(saldoAEmpenharTotal<0?' neg':'')+'">R$ '+fmt(saldoAEmpenharTotal)+'</div></div>';
   html += '<div class="metric orange"><div class="label">% executado</div><div class="value">'+pct.toFixed(2)+'%</div></div></div>';
   if (!rows.length){ html += '<p class="muted">Nenhum centro de custo corresponde ao filtro atual.</p>'; currentCard.innerHTML = html; return; }
   html += '<div class="cc-grid">';
   rows.forEach(function(r){
-    var temLiq = r.liquidacao !== null && r.liquidacao !== undefined;
-    var pctEmp = r.orcado ? (r.empenho / r.orcado * 100) : 0;
-    var pctLiq = r.orcado && temLiq ? (r.liquidacao / r.orcado * 100) : 0;
-    var pctPag = r.orcado ? (r.pagamento / r.orcado * 100) : 0;
-    var pctEmpBar = Math.min(pctEmp, 100);
-    var pctLiqBar = Math.min(pctLiq, 100);
-    var pctPagBar = Math.min(pctPag, 100);
+    var pctEmp = r.Orc_Desbloq ? (r.Empenhado / r.Orc_Desbloq * 100) : 0;
+    var pctLiq = r.Orc_Desbloq ? (r.Liquidado / r.Orc_Desbloq * 100) : 0;
+    var pctPag = r.Orc_Desbloq ? (r.Pago / r.Orc_Desbloq * 100) : 0;
+    var saldoAEmpenhar = r.Orc_Desbloq - r.Empenhado;
     var cardColor = (catState.colors && catState.colors[catState.map[r.centro]]) || '';
     html += '<div class="cc-card"' + (cardColor ? ' style="background:'+cardColor+';"' : '') + '>';
     html += '<div class="cc-name">'+r.centro+'</div>';
     html += '<div class="cc-cat">'+(catState.map[r.centro]||'sem categoria')+'</div>';
-    html += '<div class="cc-orcado">Orçado: <strong>R$ '+fmt(r.orcado)+'</strong></div>';
-    html += '<div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(r.empenho)+' · '+pctEmp.toFixed(1)+'%</span></div>';
-    html += '<div class="pbar"><div class="pbar-fill empenho'+(pctEmp>100?' over':'')+'" style="width:'+pctEmpBar+'%;"></div></div>';
-    if (temLiq){
-      html += '<div class="pbar-row"><span>Liquidado</span><span>R$ '+fmt(r.liquidacao)+' · '+pctLiq.toFixed(1)+'%</span></div>';
-      html += '<div class="pbar"><div class="pbar-fill liquidado'+(pctLiq>100?' over':'')+'" style="width:'+pctLiqBar+'%;"></div></div>';
-    }
-    html += '<div class="pbar-row"><span>Pago</span><span>R$ '+fmt(r.pagamento)+' · '+pctPag.toFixed(1)+'%</span></div>';
-    html += '<div class="pbar"><div class="pbar-fill pago'+(pctPag>100?' over':'')+'" style="width:'+pctPagBar+'%;"></div></div>';
-    html += '<div class="cc-saldos">';
-    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo do orçamento</div><div class="cc-saldo-value">R$ '+fmt(r.saldoOrc)+'</div></div>';
-    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a liquidar</div><div class="cc-saldo-value">R$ '+fmt(r.saldoLiq)+'</div></div>';
-    if (r.saldoPagar !== null && r.saldoPagar !== undefined){
-      html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a pagar</div><div class="cc-saldo-value">R$ '+fmt(r.saldoPagar)+'</div></div>';
-    }
-    html += '</div></div>';
+    html += '<div class="cc-orcado">Saldo inicial do orçamento: <strong>R$ '+fmt(r.Orc_Desbloq)+'</strong></div>';
+    html += '<div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(r.Empenhado)+' · '+pctEmp.toFixed(1)+'%</span></div>';
+    html += '<div class="pbar"><div class="pbar-fill empenho'+(pctEmp>100?' over':'')+'" style="width:'+Math.min(pctEmp,100)+'%;"></div></div>';
+    html += '<div class="pbar-row"><span>Liquidado</span><span>R$ '+fmt(r.Liquidado)+' · '+pctLiq.toFixed(1)+'%</span></div>';
+    html += '<div class="pbar"><div class="pbar-fill liquidado'+(pctLiq>100?' over':'')+'" style="width:'+Math.min(pctLiq,100)+'%;"></div></div>';
+    html += '<div class="pbar-row"><span>Pago</span><span>R$ '+fmt(r.Pago)+' · '+pctPag.toFixed(1)+'%</span></div>';
+    html += '<div class="pbar"><div class="pbar-fill pago'+(pctPag>100?' over':'')+'" style="width:'+Math.min(pctPag,100)+'%;"></div></div>';
+    html += '<div class="cc-saldos"><div class="cc-saldo-box"><div class="cc-saldo-label">Saldo à empenhar</div><div class="cc-saldo-value'+(saldoAEmpenhar<0?' neg':'')+'">R$ '+fmt(saldoAEmpenhar)+'</div></div></div>';
+    html += '</div>';
   });
   html += '</div>';
   currentCard.innerHTML = html;
+
+  var cardEls = currentCard.querySelectorAll('.cc-card');
+  cardEls.forEach(function(el, idx){
+    el.classList.add('clickable');
+    el.title = 'Ver contas contábeis deste centro de custo';
+    el.addEventListener('click', function(){ openDetalheCentro(rows[idx].centro, snap.date); });
+  });
 }
 
 // ---------- resumo por categoria ----------
 var categorySummaryCard = document.getElementById('categorySummaryCard');
 function renderCategorySummary(snap){
-  if (!snap || !snap.rows.length){ categorySummaryCard.innerHTML = '<p class="muted">Nenhum retrato salvo ainda.</p>'; return; }
+  var todasRows = rowsFromSnapshot(snap);
+  if (!todasRows.length){ categorySummaryCard.innerHTML = '<p class="muted">Nenhum retrato salvo ainda.</p>'; return; }
   var busca = stripAccents(filterBusca.value.trim());
-  var rows = snap.rows.filter(function(r){ return !busca || stripAccents(r.centro).indexOf(busca) !== -1; });
+  var rows = todasRows.filter(function(r){ return !busca || stripAccents(r.centro).indexOf(busca) !== -1; });
   var byCat = {};
   rows.forEach(function(r){
     var cat = catState.map[r.centro] || 'Sem categoria';
-    if (!byCat[cat]) byCat[cat] = {orcado:0,empenho:0,liquidacao:0,pagamento:0,saldoOrc:0,saldoLiq:0,saldoPagar:0,n:0};
-    byCat[cat].orcado+=r.orcado; byCat[cat].empenho+=r.empenho; byCat[cat].liquidacao+=(r.liquidacao||0); byCat[cat].pagamento+=r.pagamento;
-    byCat[cat].saldoOrc+=r.saldoOrc; byCat[cat].saldoLiq+=r.saldoLiq; byCat[cat].saldoPagar+=(r.saldoPagar||0); byCat[cat].n+=1;
+    if (!byCat[cat]) byCat[cat] = {Orc_Desbloq:0,Empenhado:0,Liquidado:0,Pago:0,n:0};
+    byCat[cat].Orc_Desbloq+=r.Orc_Desbloq; byCat[cat].Empenhado+=r.Empenhado; byCat[cat].Liquidado+=r.Liquidado; byCat[cat].Pago+=r.Pago; byCat[cat].n+=1;
   });
-  var cats = Object.keys(byCat).sort(function(a,b){ return byCat[b].orcado - byCat[a].orcado; });
-  var html = '<div style="overflow-x:auto;"><table><thead><tr><th>Categoria</th><th>Centros</th><th>Orçado</th><th>Empenhado</th><th>Liquidado</th><th>Pago</th><th>Saldo orçamento</th><th>Saldo a liquidar</th><th>Saldo a pagar</th><th>% executado</th></tr></thead><tbody>';
+  var cats = Object.keys(byCat).sort(function(a,b){ return byCat[b].Orc_Desbloq - byCat[a].Orc_Desbloq; });
+  var html = '<div style="overflow-x:auto;"><table><thead><tr><th>Categoria</th><th>Centros</th><th>Orç. Desbloq.</th><th>Empenhado</th><th>Liquidado</th><th>Pago</th><th>Saldo à empenhar</th><th>% executado</th></tr></thead><tbody>';
   cats.forEach(function(cat){
-    var c = byCat[cat]; var pct = c.orcado ? (c.pagamento/c.orcado*100) : 0;
-    html += '<tr><td>'+cat+'</td><td>'+c.n+'</td><td>'+fmt(c.orcado)+'</td><td>'+fmt(c.empenho)+'</td><td>'+fmt(c.liquidacao)+'</td><td>'+fmt(c.pagamento)+'</td><td>'+fmt(c.saldoOrc)+'</td><td>'+fmt(c.saldoLiq)+'</td><td>'+fmt(c.saldoPagar)+'</td><td>'+pct.toFixed(2)+'%</td></tr>';
+    var c = byCat[cat]; var saldoAEmpenhar = c.Orc_Desbloq - c.Empenhado; var pct = c.Orc_Desbloq ? (c.Pago/c.Orc_Desbloq*100) : 0;
+    html += '<tr><td>'+cat+'</td><td>'+c.n+'</td><td>'+fmt(c.Orc_Desbloq)+'</td><td>'+fmt(c.Empenhado)+'</td><td>'+fmt(c.Liquidado)+'</td><td>'+fmt(c.Pago)+'</td><td'+(saldoAEmpenhar<0?' class="neg"':'')+'>'+fmt(saldoAEmpenhar)+'</td><td>'+pct.toFixed(2)+'%</td></tr>';
   });
   html += '</tbody></table></div>';
   categorySummaryCard.innerHTML = html;
@@ -405,7 +429,82 @@ function extractDateFromFilename(name){
   return yyyy + '-' + String(mm).padStart(2,'0') + '-' + String(dd).padStart(2,'0');
 }
 
-function parseWorkbook(file, cb){
+// ---------- parser único do relatório bruto do SISCONT (Conta x Centro de Custo) ----------
+// Formato em blocos de 4 linhas por combinação Conta+Centro, com colunas
+// Conta | Centro Custos | Despesa | Na Data | No Exercício | Saldo | Na Data | No Exercício.
+// ACHADO VALIDADO em arquivo real: "No Exercício" do Empenhado vem sempre zerado
+// no SISCONT — o valor real está em "Na Data". Nas outras 3 métricas as duas
+// colunas são idênticas, por isso usamos "No Exercício" nelas.
+var METRICAS_DETALHE = ['Orc_Desbloq','Empenhado','Liquidado','Pago'];
+var LINHA_BLOCO_DETALHE = [
+  { metrica:'Orc_Desbloq', lado:'saldo',   coluna:'no_exercicio' },
+  { metrica:'Empenhado',   lado:'despesa', coluna:'na_data' },
+  { metrica:'Liquidado',   lado:'despesa', coluna:'no_exercicio' },
+  { metrica:'Pago',        lado:'despesa', coluna:'no_exercicio' }
+];
+
+function isRelatorioBrutoSiscont(data){
+  for (var i=0;i<Math.min(data.length,4);i++){
+    var row = data[i] || [];
+    var texto = stripAccents(row.map(function(x){ return (x===null||x===undefined)?'':String(x); }).join('|'));
+    if (texto.indexOf('centro custos')!==-1 && texto.indexOf('despesa')!==-1 && texto.indexOf('saldo')!==-1) return true;
+  }
+  return false;
+}
+
+function parseDetalhadoFromData(data){
+  var centros = {};
+  var totalGeral = {}; METRICAS_DETALHE.forEach(function(m){ totalGeral[m]=0; });
+  var avisos = [];
+  var contaAtual=null, centroAtual=null, valoresAtuais=null, posicao=0;
+
+  function zera(){ var o={}; METRICAS_DETALHE.forEach(function(m){ o[m]=0; }); return o; }
+  function textoLimpo(v){ return (v===null||v===undefined) ? '' : String(v).replace(/\s+/g,' ').trim(); }
+  function fecha(){
+    if (!contaAtual || !centroAtual) return;
+    if (!centros[centroAtual]) centros[centroAtual] = { contas:{}, subtotal:zera() };
+    if (!centros[centroAtual].contas[contaAtual]) centros[centroAtual].contas[contaAtual] = zera();
+    METRICAS_DETALHE.forEach(function(m){
+      centros[centroAtual].contas[contaAtual][m] += valoresAtuais[m];
+      centros[centroAtual].subtotal[m] += valoresAtuais[m];
+      totalGeral[m] += valoresAtuais[m];
+    });
+  }
+
+  for (var i=2;i<data.length;i++){
+    var row = data[i] || [];
+    var conta = textoLimpo(row[0]);
+    var centro = textoLimpo(row[1]);
+    var naData1 = row[3], noExercicio1 = row[4];
+    var naData2 = row[6], noExercicio2 = row[7];
+
+    if (conta && centro){
+      fecha();
+      contaAtual = conta; centroAtual = centro; valoresAtuais = zera(); posicao = 0;
+    }
+    if (!contaAtual) continue;
+
+    var esperado = LINHA_BLOCO_DETALHE[posicao];
+    if (esperado){
+      var naData = esperado.lado==='saldo' ? naData2 : naData1;
+      var noExercicio = esperado.lado==='saldo' ? noExercicio2 : noExercicio1;
+      if (esperado.metrica==='Empenhado' && (noExercicio||0)!==0){
+        avisos.push('Linha '+(i+1)+': EMPENHADO com "No Exercício" != 0 — SISCONT pode ter mudado o layout.');
+      } else if (esperado.metrica!=='Empenhado' && (naData||0)!==(noExercicio||0)){
+        avisos.push('Linha '+(i+1)+': '+esperado.metrica+' com "Na Data" != "No Exercício" — revisar coluna usada.');
+      }
+      var valor = esperado.coluna==='na_data' ? naData : noExercicio;
+      valoresAtuais[esperado.metrica] = Number(valor) || 0;
+    }
+    posicao++;
+  }
+  fecha();
+
+  if (!Object.keys(centros).length) throw new Error('Nenhum centro de custo encontrado no arquivo.');
+  return { centros: centros, totalGeral: totalGeral, avisos: avisos };
+}
+
+function parseWorkbookDetalhado(file, cb){
   var reader = new FileReader();
   reader.onload = function(e){
     try {
@@ -413,26 +512,10 @@ function parseWorkbook(file, cb){
       var ws = wb.Sheets[wb.SheetNames[0]];
       var data = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
       if (!data.length) throw new Error('Planilha vazia.');
-      var header = data[0].map(stripAccents);
-      function findCol(keys){ for (var i=0;i<header.length;i++){ var h=header[i]; if(!h) continue; if (keys.every(function(k){return h.indexOf(k)!==-1;})) return i; } return -1; }
-      var cCentro=findCol(['centro']), cOrcado=findCol(['orcad']), cEmpenho=findCol(['empenho']);
-      var cLiquidacao=findCol(['liquidacao']);
-      var cPagamento=findCol(['pagamento']), cSaldoOrc=findCol(['saldo','orc']);
-      var cSaldoLiq=findCol(['saldo','liquid']); if (cSaldoLiq===-1) cSaldoLiq=findCol(['remanescente']);
-      var cSaldoPagar=findCol(['saldo','pagar']);
-      if (cCentro===-1 || cOrcado===-1) throw new Error('Não encontrei as colunas esperadas.');
-      var rows=[];
-      for (var r=1;r<data.length;r++){
-        var row=data[r]; if (!row || row[cCentro]===null || row[cCentro]==='') continue;
-        rows.push({
-          centro:String(row[cCentro]).trim(), orcado:Number(row[cOrcado])||0, empenho:Number(row[cEmpenho])||0,
-          liquidacao: cLiquidacao!==-1 ? (Number(row[cLiquidacao])||0) : null,
-          pagamento:Number(row[cPagamento])||0, saldoOrc:Number(row[cSaldoOrc])||0, saldoLiq:Number(row[cSaldoLiq])||0,
-          saldoPagar: cSaldoPagar!==-1 ? (Number(row[cSaldoPagar])||0) : null
-        });
+      if (!isRelatorioBrutoSiscont(data)){
+        throw new Error('Esse arquivo não parece ser o relatório bruto de Disponibilidade Orçamentária do SISCONT (Conta x Centro de Custo). Confira se exportou o relatório certo.');
       }
-      if (!rows.length) throw new Error('Nenhuma linha encontrada.');
-      cb(null, rows);
+      cb(null, parseDetalhadoFromData(data));
     } catch(err){ cb(err); }
   };
   reader.onerror = function(){ cb(new Error('Falha ao ler o arquivo.')); };
@@ -461,14 +544,20 @@ if (saveBtn) saveBtn.addEventListener('click', function(){
       var date = extractDateFromFilename(file.name);
       if (!date){ results.push(file.name + ': não encontrei uma data de 8 dígitos (ddmmaaaa) no nome do arquivo — pulado.'); return; }
       return new Promise(function(resolve){
-        parseWorkbook(file, function(err, rows){
+        parseWorkbookDetalhado(file, function(err, det){
           if (err){ results.push(file.name + ': erro ao ler — ' + err.message); resolve(); return; }
-          saveSnapshot(date, rows).then(function(){
+          if (det.avisos && det.avisos.length){
+            console.warn('Avisos do parser SISCONT (' + file.name + '):', det.avisos);
+          }
+          saveSnapshot(date, det.centros, det.totalGeral).then(function(){
             var changed = false;
-            rows.forEach(function(r){ if (!catState.map[r.centro]){ catState.map[r.centro] = suggestCategory(r.centro); changed = true; } });
+            Object.keys(det.centros).forEach(function(centro){
+              if (!catState.map[centro]){ catState.map[centro] = suggestCategory(centro); changed = true; }
+            });
             return changed ? saveCategoriasDoc(catState) : Promise.resolve();
           }).then(function(){
-            results.push(file.name + ': salvo como retrato de ' + fmtDate(date) + ' (' + rows.length + ' centros de custo).');
+            var qtd = Object.keys(det.centros).length;
+            results.push(file.name + ': salvo como retrato de ' + fmtDate(date) + ' (' + qtd + ' centros de custo)' + (det.avisos.length ? ' — ' + det.avisos.length + ' aviso(s), ver console.' : '.'));
             resolve();
           }).catch(function(err){
             results.push(file.name + ': erro ao salvar — ' + err.message);
@@ -550,6 +639,85 @@ if (exportBtn) exportBtn.addEventListener('click', function(){
     });
   });
 });
+
+// ---------- detalhe por conta contábil (aberto ao clicar num centro de custo) ----------
+var viewDetalheCentro = document.getElementById('view-detalheCentro');
+var detalheVoltarBtn = document.getElementById('detalheVoltarBtn');
+var detalheCentroTitulo = document.getElementById('detalheCentroTitulo');
+var detalheCentroData = document.getElementById('detalheCentroData');
+var detalheCentroCard = document.getElementById('detalheCentroCard');
+var viewAntesDoDetalhe = 'inicio';
+
+function openDetalheCentro(centro, date){
+  var navAtivo = document.querySelector('.nav-item.active');
+  viewAntesDoDetalhe = navAtivo ? navAtivo.dataset.view : 'inicio';
+  document.querySelectorAll('.view').forEach(function(v){ v.style.display = 'none'; });
+  viewDetalheCentro.style.display = 'block';
+  detalheCentroTitulo.textContent = centro;
+  detalheCentroData.textContent = 'Referente a ' + fmtDate(date);
+  detalheCentroCard.innerHTML = '<p class="muted">Carregando...</p>';
+  loadSnapshot(date).then(function(det){
+    if (!det || !det.centros || !det.centros[centro]){
+      detalheCentroCard.innerHTML = '<p class="muted">Sem detalhamento por conta contábil para essa data. Suba o relatório bruto do SISCONT na tela "Retratos (upload)".</p>';
+      return;
+    }
+    renderDetalheCentro(det.centros[centro]);
+  }).catch(function(err){
+    detalheCentroCard.innerHTML = '<p class="muted">Erro ao carregar: ' + err.message + '</p>';
+  });
+}
+
+if (detalheVoltarBtn) detalheVoltarBtn.addEventListener('click', function(){
+  viewDetalheCentro.style.display = 'none';
+  document.getElementById('view-' + viewAntesDoDetalhe).style.display = 'block';
+});
+
+function renderDetalheCentro(bloco){
+  var contas = Object.keys(bloco.contas).sort(function(a,b){ return nomeExibicaoConta(a).localeCompare(nomeExibicaoConta(b)); });
+  var html = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px; margin-bottom:20px;">';
+  html += '<div class="metric"><div class="label">Orç. Desbloq.</div><div class="value">R$ '+fmt(bloco.subtotal.Orc_Desbloq)+'</div></div>';
+  html += '<div class="metric"><div class="label">Empenhado</div><div class="value">R$ '+fmt(bloco.subtotal.Empenhado)+'</div></div>';
+  html += '<div class="metric"><div class="label">Liquidado</div><div class="value">R$ '+fmt(bloco.subtotal.Liquidado)+'</div></div>';
+  html += '<div class="metric orange"><div class="label">Pago</div><div class="value">R$ '+fmt(bloco.subtotal.Pago)+'</div></div></div>';
+
+  contas.forEach(function(conta){
+    var v = bloco.contas[conta];
+    var base = v.Orc_Desbloq;
+    var pctEmp = base ? (v.Empenhado / base * 100) : 0;
+    var pctLiq = base ? (v.Liquidado / base * 100) : 0;
+    var pctPag = base ? (v.Pago / base * 100) : 0;
+    var contaCodificada = encodeURIComponent(conta);
+    html += '<div class="conta-row">';
+    html += '<div class="conta-row-head"><span class="conta-nome" title="'+conta.replace(/"/g,'&quot;')+'">'+nomeExibicaoConta(conta)+'</span>';
+    if (currentRole === 'master'){ html += '<button class="conta-edit-btn" data-conta="'+contaCodificada+'">✎ apelido</button>'; }
+    html += '</div>';
+    html += '<div class="cc-orcado">Orç. Desbloq.: <strong>R$ '+fmt(base)+'</strong></div>';
+    html += '<div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(v.Empenhado)+' · '+pctEmp.toFixed(1)+'%</span></div>';
+    html += '<div class="pbar"><div class="pbar-fill empenho'+(pctEmp>100?' over':'')+'" style="width:'+Math.min(pctEmp,100)+'%;"></div></div>';
+    html += '<div class="pbar-row"><span>Liquidado</span><span>R$ '+fmt(v.Liquidado)+' · '+pctLiq.toFixed(1)+'%</span></div>';
+    html += '<div class="pbar"><div class="pbar-fill liquidado'+(pctLiq>100?' over':'')+'" style="width:'+Math.min(pctLiq,100)+'%;"></div></div>';
+    html += '<div class="pbar-row"><span>Pago</span><span>R$ '+fmt(v.Pago)+' · '+pctPag.toFixed(1)+'%</span></div>';
+    html += '<div class="pbar"><div class="pbar-fill pago'+(pctPag>100?' over':'')+'" style="width:'+Math.min(pctPag,100)+'%;"></div></div>';
+    html += '</div>';
+  });
+
+  detalheCentroCard.innerHTML = html;
+
+  if (currentRole === 'master'){
+    detalheCentroCard.querySelectorAll('.conta-edit-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var conta = decodeURIComponent(btn.dataset.conta);
+        var atual = (apelidosState.map && apelidosState.map[conta]) || '';
+        var novo = window.prompt('Apelido para exibir no lugar de:\n' + conta, atual);
+        if (novo === null) return; // cancelou
+        if (!apelidosState.map) apelidosState.map = {};
+        if (novo.trim()) apelidosState.map[conta] = novo.trim();
+        else delete apelidosState.map[conta];
+        saveApelidosDoc(apelidosState).then(function(){ renderDetalheCentro(bloco); });
+      });
+    });
+  }
+}
 
 // ---------- minha conta ----------
 document.getElementById('changePasswordBtn').addEventListener('click', function(){

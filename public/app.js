@@ -129,13 +129,27 @@ function deleteSnapshot(date){
   return deleteDoc(doc(db, 'snapshotsDetalhe', date));
 }
 
-// Converte o retrato (centros -> subtotal) numa lista simples de linhas,
-// no formato usado pelas telas de "Situação atual" e "Resumo por categoria".
+// Converte o retrato (centros -> subtotal por Orç.Desbloq/Empenhado/Liquidado/Pago)
+// na lógica de cálculo de sempre: o Orçado é uma referência FIXA que não se
+// altera conforme o dinheiro é empenhado/liquidado/pago — só os saldos mudam.
+// Reconstrução validada: Orçado = Orç.Desbloq (atual) + Empenhado (atual),
+// pois o relatório bruto do SISCONT só informa o que "sobra" a cada etapa
+// (Orç.Desbloq. já É o Saldo do Orçamento), não o total original.
 function rowsFromSnapshot(snap){
   if (!snap || !snap.centros) return [];
   return Object.keys(snap.centros).map(function(centro){
     var s = snap.centros[centro].subtotal;
-    return { centro: centro, Orc_Desbloq: s.Orc_Desbloq, Empenhado: s.Empenhado, Liquidado: s.Liquidado, Pago: s.Pago };
+    var orcado = s.Orc_Desbloq + s.Empenhado;
+    return {
+      centro: centro,
+      orcado: orcado,
+      empenho: s.Empenhado,
+      liquidacao: s.Liquidado,
+      pagamento: s.Pago,
+      saldoOrc: s.Orc_Desbloq,
+      saldoLiq: s.Empenhado - s.Liquidado,
+      saldoPagar: s.Liquidado - s.Pago
+    };
   });
 }
 
@@ -174,6 +188,27 @@ var catState = { map: {}, list: DEFAULT_CATS.slice(), colors: {} };
 var lastCurrentSnap = null;
 var selectedCategories = null; // null = todas selecionadas
 
+// Detecta chaves de categoria salvas com o nome cru do SISCONT (de uploads
+// feitos antes do mapeamento existir) e migra pro nome padronizado,
+// eliminando duplicatas na tela de Categorias. Roda automaticamente, sem
+// precisar de botão — e é seguro rodar toda vez (não faz nada se já estiver tudo limpo).
+function migrarNomenclaturaAntiga(){
+  var changed = false;
+  Object.keys(catState.map).forEach(function(key){
+    var resolvido = resolverNomeCentro(key).nome;
+    if (resolvido !== key){
+      if (catState.map[resolvido]){
+        delete catState.map[key];
+      } else {
+        catState.map[resolvido] = catState.map[key];
+        delete catState.map[key];
+      }
+      changed = true;
+    }
+  });
+  return changed;
+}
+
 function initDataAndViews(){
   Promise.all([loadCategoriasDoc(), listSnapshotDates(), loadApelidosDoc()]).then(function(res){
     catState = res[0];
@@ -181,8 +216,8 @@ function initDataAndViews(){
     var dates = res[1];
     apelidosState = res[2];
     if (!apelidosState.map) apelidosState.map = {};
+    var changed = currentRole === 'master' ? migrarNomenclaturaAntiga() : false;
     return Promise.all(dates.map(loadSnapshot)).then(function(snaps){
-      var changed = false;
       snaps.forEach(function(snap){
         rowsFromSnapshot(snap).forEach(function(r){
           if (!catState.map[r.centro]){ catState.map[r.centro] = suggestCategory(r.centro); changed = true; }
@@ -349,36 +384,37 @@ function renderCurrent(snap){
   var todasRows = rowsFromSnapshot(snap);
   if (!todasRows.length){ currentCard.innerHTML = '<p class="muted">Nenhum retrato salvo ainda.</p>'; return; }
   var rows = todasRows.filter(function(r){ return passesFilter(r.centro); }).sort(function(a,b){return a.centro.localeCompare(b.centro);});
-  var tot = {Orc_Desbloq:0, Empenhado:0, Liquidado:0, Pago:0};
-  rows.forEach(function(r){ tot.Orc_Desbloq+=r.Orc_Desbloq; tot.Empenhado+=r.Empenhado; tot.Liquidado+=r.Liquidado; tot.Pago+=r.Pago; });
-  var saldoAEmpenharTotal = tot.Orc_Desbloq - tot.Empenhado;
-  var pct = tot.Orc_Desbloq ? (tot.Pago/tot.Orc_Desbloq*100) : 0;
+  var tot = {orcado:0,empenho:0,liquidacao:0,pagamento:0,saldoOrc:0,saldoLiq:0,saldoPagar:0};
+  rows.forEach(function(r){ tot.orcado+=r.orcado; tot.empenho+=r.empenho; tot.liquidacao+=r.liquidacao; tot.pagamento+=r.pagamento; tot.saldoOrc+=r.saldoOrc; tot.saldoLiq+=r.saldoLiq; tot.saldoPagar+=r.saldoPagar; });
+  var pct = tot.orcado ? (tot.pagamento/tot.orcado*100) : 0;
   var html = '<p class="muted" style="margin:0 0 12px;">Referente a ' + fmtDate(snap.date) + ' · ' + rows.length + ' de ' + todasRows.length + ' centros exibidos</p>';
   html += '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px; margin-bottom:18px;">';
-  html += '<div class="metric"><div class="label">Orçamento disponível</div><div class="value">R$ '+fmt(tot.Orc_Desbloq)+'</div></div>';
-  html += '<div class="metric"><div class="label">Pago até aqui</div><div class="value">R$ '+fmt(tot.Pago)+'</div></div>';
-  html += '<div class="metric'+(saldoAEmpenharTotal<0?' ':' blue')+'"><div class="label">Saldo à empenhar</div><div class="value'+(saldoAEmpenharTotal<0?' neg':'')+'">R$ '+fmt(saldoAEmpenharTotal)+'</div></div>';
+  html += '<div class="metric"><div class="label">Orçado total</div><div class="value">R$ '+fmt(tot.orcado)+'</div></div>';
+  html += '<div class="metric"><div class="label">Pago até aqui</div><div class="value">R$ '+fmt(tot.pagamento)+'</div></div>';
+  html += '<div class="metric blue"><div class="label">Saldo de orçamento</div><div class="value">R$ '+fmt(tot.saldoOrc)+'</div></div>';
   html += '<div class="metric orange"><div class="label">% executado</div><div class="value">'+pct.toFixed(2)+'%</div></div></div>';
   if (!rows.length){ html += '<p class="muted">Nenhum centro de custo corresponde ao filtro atual.</p>'; currentCard.innerHTML = html; return; }
   html += '<div class="cc-grid">';
   rows.forEach(function(r){
-    var pctEmp = r.Orc_Desbloq ? (r.Empenhado / r.Orc_Desbloq * 100) : 0;
-    var pctLiq = r.Orc_Desbloq ? (r.Liquidado / r.Orc_Desbloq * 100) : 0;
-    var pctPag = r.Orc_Desbloq ? (r.Pago / r.Orc_Desbloq * 100) : 0;
-    var saldoAEmpenhar = r.Orc_Desbloq - r.Empenhado;
+    var pctEmp = r.orcado ? (r.empenho / r.orcado * 100) : 0;
+    var pctLiq = r.orcado ? (r.liquidacao / r.orcado * 100) : 0;
+    var pctPag = r.orcado ? (r.pagamento / r.orcado * 100) : 0;
     var cardColor = (catState.colors && catState.colors[catState.map[r.centro]]) || '';
     html += '<div class="cc-card"' + (cardColor ? ' style="background:'+cardColor+';"' : '') + '>';
     html += '<div class="cc-name">'+r.centro+'</div>';
     html += '<div class="cc-cat">'+(catState.map[r.centro]||'sem categoria')+'</div>';
-    html += '<div class="cc-orcado">Saldo inicial do orçamento: <strong>R$ '+fmt(r.Orc_Desbloq)+'</strong></div>';
-    html += '<div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(r.Empenhado)+' · '+pctEmp.toFixed(1)+'%</span></div>';
+    html += '<div class="cc-orcado">Orçado: <strong>R$ '+fmt(r.orcado)+'</strong></div>';
+    html += '<div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(r.empenho)+' · '+pctEmp.toFixed(1)+'%</span></div>';
     html += '<div class="pbar"><div class="pbar-fill empenho'+(pctEmp>100?' over':'')+'" style="width:'+Math.min(pctEmp,100)+'%;"></div></div>';
-    html += '<div class="pbar-row"><span>Liquidado</span><span>R$ '+fmt(r.Liquidado)+' · '+pctLiq.toFixed(1)+'%</span></div>';
+    html += '<div class="pbar-row"><span>Liquidado</span><span>R$ '+fmt(r.liquidacao)+' · '+pctLiq.toFixed(1)+'%</span></div>';
     html += '<div class="pbar"><div class="pbar-fill liquidado'+(pctLiq>100?' over':'')+'" style="width:'+Math.min(pctLiq,100)+'%;"></div></div>';
-    html += '<div class="pbar-row"><span>Pago</span><span>R$ '+fmt(r.Pago)+' · '+pctPag.toFixed(1)+'%</span></div>';
+    html += '<div class="pbar-row"><span>Pago</span><span>R$ '+fmt(r.pagamento)+' · '+pctPag.toFixed(1)+'%</span></div>';
     html += '<div class="pbar"><div class="pbar-fill pago'+(pctPag>100?' over':'')+'" style="width:'+Math.min(pctPag,100)+'%;"></div></div>';
-    html += '<div class="cc-saldos"><div class="cc-saldo-box"><div class="cc-saldo-label">Saldo à empenhar</div><div class="cc-saldo-value'+(saldoAEmpenhar<0?' neg':'')+'">R$ '+fmt(saldoAEmpenhar)+'</div></div></div>';
-    html += '</div>';
+    html += '<div class="cc-saldos">';
+    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo do orçamento</div><div class="cc-saldo-value">R$ '+fmt(r.saldoOrc)+'</div></div>';
+    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a liquidar</div><div class="cc-saldo-value">R$ '+fmt(r.saldoLiq)+'</div></div>';
+    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a pagar</div><div class="cc-saldo-value">R$ '+fmt(r.saldoPagar)+'</div></div>';
+    html += '</div></div>';
   });
   html += '</div>';
   currentCard.innerHTML = html;
@@ -401,14 +437,15 @@ function renderCategorySummary(snap){
   var byCat = {};
   rows.forEach(function(r){
     var cat = catState.map[r.centro] || 'Sem categoria';
-    if (!byCat[cat]) byCat[cat] = {Orc_Desbloq:0,Empenhado:0,Liquidado:0,Pago:0,n:0};
-    byCat[cat].Orc_Desbloq+=r.Orc_Desbloq; byCat[cat].Empenhado+=r.Empenhado; byCat[cat].Liquidado+=r.Liquidado; byCat[cat].Pago+=r.Pago; byCat[cat].n+=1;
+    if (!byCat[cat]) byCat[cat] = {orcado:0,empenho:0,liquidacao:0,pagamento:0,saldoOrc:0,saldoLiq:0,saldoPagar:0,n:0};
+    byCat[cat].orcado+=r.orcado; byCat[cat].empenho+=r.empenho; byCat[cat].liquidacao+=r.liquidacao; byCat[cat].pagamento+=r.pagamento;
+    byCat[cat].saldoOrc+=r.saldoOrc; byCat[cat].saldoLiq+=r.saldoLiq; byCat[cat].saldoPagar+=r.saldoPagar; byCat[cat].n+=1;
   });
-  var cats = Object.keys(byCat).sort(function(a,b){ return byCat[b].Orc_Desbloq - byCat[a].Orc_Desbloq; });
-  var html = '<div style="overflow-x:auto;"><table><thead><tr><th>Categoria</th><th>Centros</th><th>Orç. Desbloq.</th><th>Empenhado</th><th>Liquidado</th><th>Pago</th><th>Saldo à empenhar</th><th>% executado</th></tr></thead><tbody>';
+  var cats = Object.keys(byCat).sort(function(a,b){ return byCat[b].orcado - byCat[a].orcado; });
+  var html = '<div style="overflow-x:auto;"><table><thead><tr><th>Categoria</th><th>Centros</th><th>Orçado</th><th>Empenhado</th><th>Liquidado</th><th>Pago</th><th>Saldo orçamento</th><th>Saldo a liquidar</th><th>Saldo a pagar</th><th>% executado</th></tr></thead><tbody>';
   cats.forEach(function(cat){
-    var c = byCat[cat]; var saldoAEmpenhar = c.Orc_Desbloq - c.Empenhado; var pct = c.Orc_Desbloq ? (c.Pago/c.Orc_Desbloq*100) : 0;
-    html += '<tr><td>'+cat+'</td><td>'+c.n+'</td><td>'+fmt(c.Orc_Desbloq)+'</td><td>'+fmt(c.Empenhado)+'</td><td>'+fmt(c.Liquidado)+'</td><td>'+fmt(c.Pago)+'</td><td'+(saldoAEmpenhar<0?' class="neg"':'')+'>'+fmt(saldoAEmpenhar)+'</td><td>'+pct.toFixed(2)+'%</td></tr>';
+    var c = byCat[cat]; var pct = c.orcado ? (c.pagamento/c.orcado*100) : 0;
+    html += '<tr><td>'+cat+'</td><td>'+c.n+'</td><td>'+fmt(c.orcado)+'</td><td>'+fmt(c.empenho)+'</td><td>'+fmt(c.liquidacao)+'</td><td>'+fmt(c.pagamento)+'</td><td>'+fmt(c.saldoOrc)+'</td><td>'+fmt(c.saldoLiq)+'</td><td>'+fmt(c.saldoPagar)+'</td><td>'+pct.toFixed(2)+'%</td></tr>';
   });
   html += '</tbody></table></div>';
   categorySummaryCard.innerHTML = html;
@@ -759,31 +796,39 @@ if (detalheVoltarBtn) detalheVoltarBtn.addEventListener('click', function(){
 
 function renderDetalheCentro(bloco){
   var contas = Object.keys(bloco.contas).sort(function(a,b){ return nomeExibicaoConta(a).localeCompare(nomeExibicaoConta(b)); });
+  var orcadoTotal = bloco.subtotal.Orc_Desbloq + bloco.subtotal.Empenhado;
   var html = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px; margin-bottom:20px;">';
-  html += '<div class="metric"><div class="label">Orç. Desbloq.</div><div class="value">R$ '+fmt(bloco.subtotal.Orc_Desbloq)+'</div></div>';
+  html += '<div class="metric"><div class="label">Orçado</div><div class="value">R$ '+fmt(orcadoTotal)+'</div></div>';
   html += '<div class="metric"><div class="label">Empenhado</div><div class="value">R$ '+fmt(bloco.subtotal.Empenhado)+'</div></div>';
   html += '<div class="metric"><div class="label">Liquidado</div><div class="value">R$ '+fmt(bloco.subtotal.Liquidado)+'</div></div>';
   html += '<div class="metric orange"><div class="label">Pago</div><div class="value">R$ '+fmt(bloco.subtotal.Pago)+'</div></div></div>';
 
   contas.forEach(function(conta){
     var v = bloco.contas[conta];
-    var base = v.Orc_Desbloq;
-    var pctEmp = base ? (v.Empenhado / base * 100) : 0;
-    var pctLiq = base ? (v.Liquidado / base * 100) : 0;
-    var pctPag = base ? (v.Pago / base * 100) : 0;
+    var orcado = v.Orc_Desbloq + v.Empenhado;
+    var saldoOrc = v.Orc_Desbloq;
+    var saldoLiq = v.Empenhado - v.Liquidado;
+    var saldoPagar = v.Liquidado - v.Pago;
+    var pctEmp = orcado ? (v.Empenhado / orcado * 100) : 0;
+    var pctLiq = orcado ? (v.Liquidado / orcado * 100) : 0;
+    var pctPag = orcado ? (v.Pago / orcado * 100) : 0;
     var contaCodificada = encodeURIComponent(conta);
     html += '<div class="conta-row">';
     html += '<div class="conta-row-head"><span class="conta-nome" title="'+conta.replace(/"/g,'&quot;')+'">'+nomeExibicaoConta(conta)+'</span>';
     if (currentRole === 'master'){ html += '<button class="conta-edit-btn" data-conta="'+contaCodificada+'">✎ apelido</button>'; }
     html += '</div>';
-    html += '<div class="cc-orcado">Orç. Desbloq.: <strong>R$ '+fmt(base)+'</strong></div>';
+    html += '<div class="cc-orcado">Orçado: <strong>R$ '+fmt(orcado)+'</strong></div>';
     html += '<div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(v.Empenhado)+' · '+pctEmp.toFixed(1)+'%</span></div>';
     html += '<div class="pbar"><div class="pbar-fill empenho'+(pctEmp>100?' over':'')+'" style="width:'+Math.min(pctEmp,100)+'%;"></div></div>';
     html += '<div class="pbar-row"><span>Liquidado</span><span>R$ '+fmt(v.Liquidado)+' · '+pctLiq.toFixed(1)+'%</span></div>';
     html += '<div class="pbar"><div class="pbar-fill liquidado'+(pctLiq>100?' over':'')+'" style="width:'+Math.min(pctLiq,100)+'%;"></div></div>';
     html += '<div class="pbar-row"><span>Pago</span><span>R$ '+fmt(v.Pago)+' · '+pctPag.toFixed(1)+'%</span></div>';
     html += '<div class="pbar"><div class="pbar-fill pago'+(pctPag>100?' over':'')+'" style="width:'+Math.min(pctPag,100)+'%;"></div></div>';
-    html += '</div>';
+    html += '<div class="cc-saldos">';
+    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo do orçamento</div><div class="cc-saldo-value">R$ '+fmt(saldoOrc)+'</div></div>';
+    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a liquidar</div><div class="cc-saldo-value">R$ '+fmt(saldoLiq)+'</div></div>';
+    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a pagar</div><div class="cc-saldo-value">R$ '+fmt(saldoPagar)+'</div></div>';
+    html += '</div></div>';
   });
 
   detalheCentroCard.innerHTML = html;

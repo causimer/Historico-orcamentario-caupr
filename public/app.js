@@ -241,6 +241,11 @@ function initDataAndViews(){
   document.getElementById('contaInfo').textContent = 'Logado como ' + currentUser.email + ' (' + (currentRole==='master'?'master':'visualizador(a)') + ').';
 }
 
+// escapa texto digitado pelo usuário antes de colocar em HTML
+function escHtml(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 // ---------- filtros ----------
 var filterBusca = document.getElementById('filterBusca');
 var catMultiCombo = document.getElementById('catMultiCombo');
@@ -394,6 +399,30 @@ function renderCurrent(snap){
   html += '<div class="metric blue"><div class="label">Saldo de orçamento</div><div class="value">R$ '+fmt(tot.saldoOrc)+'</div></div>';
   html += '<div class="metric orange"><div class="label">% executado</div><div class="value">'+pct.toFixed(2)+'%</div></div></div>';
   if (!rows.length){ html += '<p class="muted">Nenhum centro de custo corresponde ao filtro atual.</p>'; currentCard.innerHTML = html; return; }
+
+  // ----- visão geral consolidada da seleção atual (mesmas somas e fórmulas dos cartões) -----
+  var todasSelecionadas = (selectedCategories === null || selectedCategories.length === catState.list.length);
+  var buscaAtiva = filterBusca.value.trim();
+  var rotuloSelecao = todasSelecionadas ? 'Todas as categorias' : selectedCategories.map(escHtml).join(' + ');
+  if (buscaAtiva) rotuloSelecao += ' · busca: "' + escHtml(buscaAtiva) + '"';
+  var gPctEmp = tot.orcado ? (tot.empenho / tot.orcado * 100) : 0;
+  var gPctLiq = tot.orcado ? (tot.liquidacao / tot.orcado * 100) : 0;
+  var gPctPag = tot.orcado ? (tot.pagamento / tot.orcado * 100) : 0;
+  html += '<div class="cc-geral">';
+  html += '<div class="cc-name">Visão geral</div>';
+  html += '<div class="cc-cat">'+rotuloSelecao+' · '+rows.length+' centro(s) de custo</div>';
+  html += '<div class="cc-orcado">Orçado: <strong>R$ '+fmt(tot.orcado)+'</strong></div>';
+  html += '<div class="geral-bars">';
+  html += '<div><div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(tot.empenho)+' · '+gPctEmp.toFixed(1)+'%</span></div><div class="pbar"><div class="pbar-fill empenho" style="width:'+Math.min(gPctEmp,100)+'%;"></div></div></div>';
+  html += '<div><div class="pbar-row"><span>Liquidado</span><span>R$ '+fmt(tot.liquidacao)+' · '+gPctLiq.toFixed(1)+'%</span></div><div class="pbar"><div class="pbar-fill liquidado" style="width:'+Math.min(gPctLiq,100)+'%;"></div></div></div>';
+  html += '<div><div class="pbar-row"><span>Pago</span><span>R$ '+fmt(tot.pagamento)+' · '+gPctPag.toFixed(1)+'%</span></div><div class="pbar"><div class="pbar-fill pago" style="width:'+Math.min(gPctPag,100)+'%;"></div></div></div>';
+  html += '</div>';
+  html += '<div class="cc-saldos">';
+  html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo do orçamento</div><div class="cc-saldo-value">R$ '+fmt(tot.saldoOrc)+'</div></div>';
+  html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a liquidar</div><div class="cc-saldo-value">R$ '+fmt(tot.saldoLiq)+'</div></div>';
+  html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a pagar</div><div class="cc-saldo-value">R$ '+fmt(tot.saldoPagar)+'</div></div>';
+  html += '</div></div>';
+
   html += '<div class="cc-grid">';
   rows.forEach(function(r){
     var pctEmp = r.orcado ? (r.empenho / r.orcado * 100) : 0;

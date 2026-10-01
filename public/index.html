@@ -66,12 +66,12 @@
           <button class="btn" id="filterClear">Limpar filtros</button>
         </div>
         <div class="card" id="dateSliderCard">
-          <label>Data de referência (YTD)</label>
+          <h3>Posição do orçamento em <span id="referenceHeading">—</span></h3><div class="reference-controls"><label>Mês de referência<select id="referenceMonth" disabled></select></label><label>Data disponível<select id="referenceDate" disabled></select></label></div>
           <div class="slider-row">
             <input type="range" id="dateSlider" min="0" max="0" value="0" step="1" />
             <span class="slider-date" id="dateSliderLabel">—</span>
           </div>
-          <p class="muted" style="margin:6px 0 0;">Exibindo a posição importada para a data selecionada, usando exclusivamente a coluna Na Data do SISCONT.</p>
+          <p class="muted" style="margin:6px 0 0;">A barra percorre os retratos importados. O mês abre sua última data disponível; os valores representam a coluna Na Data dessa referência, sem interpolação.</p>
         </div>
         <div class="card" id="currentCard"><p class="muted">Carregando...</p></div>
         <h2 style="margin-top:28px;">Resumo por categoria</h2>
@@ -106,11 +106,11 @@
         <h2>Retratos (upload)</h2>
         <div class="card">
           <div class="row">
-            <div><label>Relatório de Disponibilidade Orçamentária bruto do SISCONT (.xlsx/.xls) — pode selecionar vários arquivos de uma vez, a data de cada um é lida do nome do arquivo</label><input type="file" id="fileInput" accept=".xlsx,.xls" multiple /></div>
+            <div><label>Relatório de Disponibilidade Orçamentária bruto do SISCONT (PDF recomendado ou Excel) — selecione um ou vários arquivos. Confira os totais antes de salvar.</label><input type="file" id="fileInput" accept=".pdf,.xlsx,.xls" multiple /></div>
             <button class="btn primary" id="saveBtn" disabled>Salvar retrato(s)</button>
           </div>
-          <p class="import-warning">Importação: saldo orçamentário, empenhado, liquidado e pago usam exclusivamente Na Data. Para corrigir retratos antigos, reimporte os relatórios correspondentes.</p>
-          <p class="muted" id="parseStatus" style="margin:12px 0 0;"></p>
+          <p class="import-warning">Importação: saldo orçamentário, empenhado, liquidado e pago usam exclusivamente Na Data. No PDF, a referência vem da data impressa no relatório. Ao salvar, um retrato da mesma data é substituído. Para corrigir retratos antigos, reimporte os PDFs correspondentes.</p>
+          <div id="parseStatus" aria-live="polite" style="margin:12px 0 0;"></div>
         </div>
         <div class="card">
           <div id="chipsWrap"><span class="muted">Nenhum retrato salvo ainda.</span></div>

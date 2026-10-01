@@ -112,3 +112,25 @@ label { display:block; font-size:11px; color:#928D80; margin-bottom:5px; text-tr
 }
 
 .import-warning { background:#fff3cd; color:#664d03; padding:12px 14px; border-radius:8px; line-height:1.5; margin:12px 0; }
+
+.import-preview { padding:16px; margin:12px 0; border:1px solid #d8d2c4; border-radius:10px; background:#faf8f1; overflow-wrap:anywhere; }
+.import-preview p { margin:8px 0; line-height:1.5; }
+.source-note { font-size:12px; color:#625e53; overflow-wrap:anywhere; }
+
+.reference-controls {display:flex;flex-wrap:wrap;gap:16px;margin:12px 0;}
+.reference-controls label {display:flex;flex-direction:column;gap:6px;min-width:180px;flex:1;}
+.reference-controls select {width:100%;padding:10px;border:1px solid #d8d2c4;border-radius:6px;background:white;}
+#dateSliderCard h3 {margin:0;}
+#dateSlider {cursor:pointer;}
+/* Saldos legíveis: cada valor conserva moeda e centavos na mesma linha. */
+.cc-grid { grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr)); }
+.cc-card { min-width:0; display:flex; flex-direction:column; }
+.cc-card .cc-saldos, .conta-row .cc-saldos { display:grid; grid-template-columns:1fr; margin-top:auto; gap:6px; }
+.cc-saldo-box { min-width:0; box-sizing:border-box; }
+.cc-card .cc-saldo-box, .conta-row .cc-saldo-box { display:grid; grid-template-columns:minmax(0,1fr) max-content; gap:12px; align-items:center; padding:10px; }
+.cc-card .cc-saldo-label, .conta-row .cc-saldo-label { margin:0; }
+.cc-saldo-value { white-space:nowrap; font-variant-numeric:tabular-nums; text-align:right; }
+.cc-geral .cc-saldos { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr)); }
+.pbar-row { gap:8px; flex-wrap:wrap; }
+.pbar-row span:last-child { margin-left:auto; white-space:nowrap; font-variant-numeric:tabular-nums; }
+@media (max-width:380px) { .cc-card .cc-saldo-box,.conta-row .cc-saldo-box {grid-template-columns:1fr;gap:4px;} .cc-saldo-value {font-size:12px;} }

@@ -134,3 +134,25 @@ label { display:block; font-size:11px; color:#928D80; margin-bottom:5px; text-tr
 .pbar-row { gap:8px; flex-wrap:wrap; }
 .pbar-row span:last-child { margin-left:auto; white-space:nowrap; font-variant-numeric:tabular-nums; }
 @media (max-width:380px) { .cc-card .cc-saldo-box,.conta-row .cc-saldo-box {grid-template-columns:1fr;gap:4px;} .cc-saldo-value {font-size:12px;} }
+
+.category-toggles {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:10px;margin:16px 0;}
+.category-toggle {display:grid;grid-template-columns:12px 1fr;gap:8px;text-align:left;align-items:center;min-height:70px;padding:12px;border:1px solid #7c9873;border-radius:8px;background:#edf4e9;color:#211f1c;cursor:pointer;font:500 12px Inter,sans-serif;}
+.category-toggle[aria-pressed="false"] {background:#f2f1ed;border-color:#d8d2c4;color:#79766e;}
+.category-toggle[aria-pressed="false"] .category-indicator {opacity:.3;}
+.category-indicator {width:10px;height:10px;border-radius:50%;}
+.toggle-state {grid-column:2;font-size:10px;font-weight:400;}
+.category-toggle:focus-visible {outline:3px solid #2e5a8c;outline-offset:2px;}
+.filter-fields {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:12px;align-items:end;}
+.filter-fields label {margin:0;display:flex;flex-direction:column;gap:6px;}
+.filter-fields input,.filter-fields select {width:100%;min-width:0;}
+.filter-actions {display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;}
+.study-metrics {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;}
+.study-metrics strong {display:block;white-space:nowrap;font:600 17px 'IBM Plex Mono',monospace;margin-top:8px;}
+.study-rank {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;margin:14px 0;font-size:12px;}
+.study-rank strong {white-space:nowrap;font-family:'IBM Plex Mono',monospace;}
+.study-bar {grid-column:1/-1;background:#ede8dd;height:7px;border-radius:4px;overflow:hidden;}
+.study-bar span {display:block;height:100%;background:#5f8054;}
+.study-table {overflow-x:auto;margin-top:14px;}
+.study-table td:not(:first-child) {white-space:nowrap;}
+[hidden] {display:none !important;}
+@media(max-width:480px){.study-rank {grid-template-columns:1fr;}.study-bar {grid-column:1;}}

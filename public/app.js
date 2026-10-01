@@ -102,6 +102,8 @@ document.querySelectorAll('.nav-item[data-view]').forEach(function(btn){
     btn.classList.add('active');
     document.querySelectorAll('.view').forEach(function(v){ v.style.display = 'none'; });
     document.getElementById('view-' + btn.dataset.view).style.display = 'block';
+    document.getElementById('budgetControls').hidden = !['inicio','estudos'].includes(btn.dataset.view);
+    if(btn.dataset.view==='estudos') renderStudies();
   });
 });
 
@@ -226,7 +228,7 @@ function initDataAndViews(){
       });
       var save = changed && currentRole === 'master' ? saveCategoriasDoc(catState) : Promise.resolve();
       return save.then(function(){
-        selectedCategories = catState.list.slice();
+        selectedCategories = categoryNames();
         renderCatMultiList();
         updateCatMultiBtnLabel();
         renderCatColorList();
@@ -249,69 +251,31 @@ function escHtml(s){
 
 // ---------- filtros ----------
 var filterBusca = document.getElementById('filterBusca');
-var catMultiCombo = document.getElementById('catMultiCombo');
-var catMultiBtn = document.getElementById('catMultiBtn');
-var catMultiPanel = document.getElementById('catMultiPanel');
 var catMultiList = document.getElementById('catMultiList');
-var catMultiAllBtn = document.getElementById('catMultiAll');
-var catMultiNoneBtn = document.getElementById('catMultiNone');
-
-document.getElementById('filterClear').addEventListener('click', function(){
-  selectedCategories = catState.list.slice();
-  filterBusca.value = '';
-  renderCatMultiList(); updateCatMultiBtnLabel(); refreshFilteredViews();
-});
-filterBusca.addEventListener('input', refreshFilteredViews);
-
-catMultiBtn.addEventListener('click', function(e){
-  e.stopPropagation();
-  catMultiPanel.classList.toggle('open');
-});
-document.addEventListener('click', function(e){
-  if (!catMultiCombo.contains(e.target)) catMultiPanel.classList.remove('open');
-});
-catMultiAllBtn.addEventListener('click', function(){
-  selectedCategories = catState.list.slice();
-  renderCatMultiList(); updateCatMultiBtnLabel(); refreshFilteredViews();
-});
-catMultiNoneBtn.addEventListener('click', function(){
-  selectedCategories = [];
-  renderCatMultiList(); updateCatMultiBtnLabel(); refreshFilteredViews();
-});
-
+var balanceOrder = document.getElementById('balanceOrder');
+var balanceScope = document.getElementById('balanceScope');
+function categoryNames(){return Array.from(new Set(catState.list.concat(Object.values(catState.map)))).sort(function(a,b){return a.localeCompare(b,'pt-BR');});}
+document.getElementById('filterClear').addEventListener('click',function(){selectedCategories=categoryNames();filterBusca.value='';balanceOrder.value='desc';balanceScope.value='all';renderCatMultiList();refreshFilteredViews();});
+filterBusca.addEventListener('input',refreshFilteredViews);
+balanceOrder.addEventListener('change',refreshFilteredViews);balanceScope.addEventListener('change',refreshFilteredViews);
+document.getElementById('catMultiAll').addEventListener('click',function(){selectedCategories=categoryNames();renderCatMultiList();refreshFilteredViews();});
+document.getElementById('catMultiNone').addEventListener('click',function(){selectedCategories=[];renderCatMultiList();refreshFilteredViews();});
 function renderCatMultiList(){
-  if (selectedCategories === null) selectedCategories = catState.list.slice();
-  catMultiList.innerHTML = '';
-  catState.list.forEach(function(c){
-    var row = document.createElement('label');
-    row.className = 'multi-combo-item';
-    var cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = selectedCategories.indexOf(c) !== -1;
-    cb.addEventListener('change', function(){
-      if (cb.checked){ if (selectedCategories.indexOf(c) === -1) selectedCategories.push(c); }
-      else { selectedCategories = selectedCategories.filter(function(x){ return x !== c; }); }
-      updateCatMultiBtnLabel();
-      refreshFilteredViews();
-    });
-    var swatch = document.createElement('span');
-    swatch.className = 'multi-combo-swatch';
-    swatch.style.background = (catState.colors && catState.colors[c]) || '#F5F1E7';
-    var txt = document.createElement('span');
-    txt.textContent = c;
-    row.appendChild(cb); row.appendChild(swatch); row.appendChild(txt);
-    catMultiList.appendChild(row);
-  });
+  var names=categoryNames();if(selectedCategories===null)selectedCategories=names.slice();catMultiList.replaceChildren();
+  names.forEach(function(c){var btn=document.createElement('button');btn.type='button';btn.className='category-toggle';var active=selectedCategories.includes(c);btn.setAttribute('aria-pressed',String(active));
+    var indicator=document.createElement('span');indicator.className='category-indicator';indicator.style.backgroundColor=(catState.colors && catState.colors[c]) || '#7c9873';
+    var label=document.createElement('span');label.textContent=c;var state=document.createElement('span');state.className='toggle-state';state.textContent=active?'Ligada':'Desligada';btn.append(indicator,label,state);
+    btn.addEventListener('click',function(){if(selectedCategories.includes(c))selectedCategories=selectedCategories.filter(function(x){return x!==c;});else selectedCategories.push(c);renderCatMultiList();refreshFilteredViews();});catMultiList.append(btn);
+  });updateCatMultiBtnLabel();
 }
-function updateCatMultiBtnLabel(){
-  if (selectedCategories === null || selectedCategories.length === catState.list.length){ catMultiBtn.textContent = 'Todas as categorias'; }
-  else if (selectedCategories.length === 0){ catMultiBtn.textContent = 'Nenhuma categoria'; }
-  else { catMultiBtn.textContent = selectedCategories.length + ' selecionada(s)'; }
-}
+function updateCatMultiBtnLabel(){document.getElementById('categorySelectionStatus').textContent=(selectedCategories || categoryNames()).length+' de '+categoryNames().length+' categorias ligadas';}
+function passesBalance(r){return balanceScope.value==='all'||(balanceScope.value==='positive'&&r.saldoOrc>0.005)||(balanceScope.value==='negative'&&r.saldoOrc< -0.005)||(balanceScope.value==='zero'&&Math.abs(r.saldoOrc)<=0.005);}
+function compareBudgetRows(a,b){return (balanceOrder.value==='name'?0:(balanceOrder.value==='asc'?a.saldoOrc-b.saldoOrc:b.saldoOrc-a.saldoOrc)) || a.centro.localeCompare(b.centro,'pt-BR');}
+function visibleRows(snap){return rowsFromSnapshot(snap).filter(function(r){return passesFilter(r.centro)&&passesBalance(r);}).sort(compareBudgetRows);}
 
 function passesFilter(centro){
   if (selectedCategories !== null){
-    var cat = catState.map[centro];
+    var cat = catState.map[centro] || 'Sem categoria';
     if (selectedCategories.indexOf(cat) === -1) return false;
   }
   var busca = stripAccents(filterBusca.value.trim());
@@ -319,7 +283,7 @@ function passesFilter(centro){
   return true;
 }
 function refreshFilteredViews(){
-  if (lastCurrentSnap){ renderCurrent(lastCurrentSnap); renderCategorySummary(lastCurrentSnap); }
+  if (lastCurrentSnap){ renderCurrent(lastCurrentSnap); renderCategorySummary(lastCurrentSnap); renderStudies(); }
 }
 
 // ---------- categorias (tabela + cores) ----------
@@ -331,7 +295,7 @@ document.getElementById('newCatBtn').addEventListener('click', function(){
   if (catState.list.indexOf(name) === -1){
     catState.list.push(name);
     saveCategoriasDoc(catState).then(function(){
-      selectedCategories = catState.list.slice();
+      selectedCategories = categoryNames();
       renderCatMultiList(); updateCatMultiBtnLabel(); renderCatColorList(); renderCatTable();
     });
   }
@@ -389,7 +353,7 @@ var currentCard = document.getElementById('currentCard');
 function renderCurrent(snap){
   var todasRows = rowsFromSnapshot(snap);
   if (!todasRows.length){ currentCard.innerHTML = '<p class="muted">Nenhum retrato salvo ainda.</p>'; return; }
-  var rows = todasRows.filter(function(r){ return passesFilter(r.centro); }).sort(function(a,b){return a.centro.localeCompare(b.centro);});
+  var rows = visibleRows(snap);
   var tot = {orcado:0,empenho:0,liquidacao:0,pagamento:0,saldoOrc:0,saldoLiq:0,saldoPagar:0};
   rows.forEach(function(r){ tot.orcado+=r.orcado; tot.empenho+=r.empenho; tot.liquidacao+=r.liquidacao; tot.pagamento+=r.pagamento; tot.saldoOrc+=r.saldoOrc; tot.saldoLiq+=r.saldoLiq; tot.saldoPagar+=r.saldoPagar; });
   var pct = tot.orcado ? (tot.pagamento/tot.orcado*100) : 0;
@@ -404,7 +368,7 @@ function renderCurrent(snap){
   if (!rows.length){ html += '<p class="muted">Nenhum centro de custo corresponde ao filtro atual.</p>'; currentCard.innerHTML = html; return; }
 
   // ----- visão geral consolidada da seleção atual (mesmas somas e fórmulas dos cartões) -----
-  var todasSelecionadas = (selectedCategories === null || selectedCategories.length === catState.list.length);
+  var todasSelecionadas = (selectedCategories === null || selectedCategories.length === categoryNames().length);
   var buscaAtiva = filterBusca.value.trim();
   var rotuloSelecao = todasSelecionadas ? 'Todas as categorias' : selectedCategories.map(escHtml).join(' + ');
   if (buscaAtiva) rotuloSelecao += ' · busca: "' + escHtml(buscaAtiva) + '"';
@@ -465,7 +429,7 @@ function renderCategorySummary(snap){
   var todasRows = rowsFromSnapshot(snap);
   if (!todasRows.length){ categorySummaryCard.innerHTML = '<p class="muted">Nenhum retrato salvo ainda.</p>'; return; }
   var busca = stripAccents(filterBusca.value.trim());
-  var rows = todasRows.filter(function(r){ return !busca || stripAccents(r.centro).indexOf(busca) !== -1; });
+  var rows = visibleRows(snap);
   var byCat = {};
   rows.forEach(function(r){
     var cat = catState.map[r.centro] || 'Sem categoria';
@@ -473,7 +437,7 @@ function renderCategorySummary(snap){
     byCat[cat].orcado+=r.orcado; byCat[cat].empenho+=r.empenho; byCat[cat].liquidacao+=r.liquidacao; byCat[cat].pagamento+=r.pagamento;
     byCat[cat].saldoOrc+=r.saldoOrc; byCat[cat].saldoLiq+=r.saldoLiq; byCat[cat].saldoPagar+=r.saldoPagar; byCat[cat].n+=1;
   });
-  var cats = Object.keys(byCat).sort(function(a,b){ return byCat[b].orcado - byCat[a].orcado; });
+  var cats = Object.keys(byCat).sort(function(a,b){return balanceOrder.value==='name'?a.localeCompare(b,'pt-BR'):(balanceOrder.value==='asc'?byCat[a].saldoOrc-byCat[b].saldoOrc:byCat[b].saldoOrc-byCat[a].saldoOrc)||a.localeCompare(b,'pt-BR');});
   var html = '<div style="overflow-x:auto;"><table><thead><tr><th>Categoria</th><th>Centros</th><th>Orçado</th><th>Empenhado</th><th>Liquidado</th><th>Pago</th><th>Saldo orçamento</th><th>Saldo a liquidar</th><th>Saldo a pagar</th><th>% executado</th></tr></thead><tbody>';
   cats.forEach(function(cat){
     var c = byCat[cat]; var pct = c.orcado ? (c.pagamento/c.orcado*100) : 0;
@@ -759,7 +723,7 @@ function selectReference(date){
   referenceHeading.textContent=fmtDate(date);referenceMonth.value=date.slice(0,7);
   referenceDate.replaceChildren();
   availableDates.filter(function(d){return d.slice(0,7)===date.slice(0,7);}).forEach(function(d){var o=new Option(fmtDate(d),d);referenceDate.add(o);});referenceDate.value=date;
-  lastCurrentSnap=snapshotsByDate[date];renderCurrent(lastCurrentSnap);renderCategorySummary(lastCurrentSnap);
+  lastCurrentSnap=snapshotsByDate[date];renderCurrent(lastCurrentSnap);renderCategorySummary(lastCurrentSnap);syncStudyDates(date);renderStudies();
 }
 function setupDateSlider(dates, snaps){
   availableDates=dates;snapshotsByDate={};snaps.forEach(function(s,i){snapshotsByDate[dates[i]]=s;});
@@ -799,6 +763,7 @@ function openDetalheCentro(centro, date){
   viewAntesDoDetalhe = navAtivo ? navAtivo.dataset.view : 'inicio';
   document.querySelectorAll('.view').forEach(function(v){ v.style.display = 'none'; });
   viewDetalheCentro.style.display = 'block';
+  document.getElementById('budgetControls').hidden=true;
   detalheCentroTitulo.textContent = centro;
   detalheCentroData.textContent = 'Referente a ' + fmtDate(date);
   detalheCentroCard.innerHTML = '<p class="muted">Carregando...</p>';
@@ -816,6 +781,7 @@ function openDetalheCentro(centro, date){
 if (detalheVoltarBtn) detalheVoltarBtn.addEventListener('click', function(){
   viewDetalheCentro.style.display = 'none';
   document.getElementById('view-' + viewAntesDoDetalhe).style.display = 'block';
+  document.getElementById('budgetControls').hidden=!['inicio','estudos'].includes(viewAntesDoDetalhe);
 });
 
 function renderDetalheCentro(bloco){
@@ -885,3 +851,34 @@ document.getElementById('changePasswordBtn').addEventListener('click', function(
     msg.textContent = 'Não foi possível trocar agora — faça login novamente e tente de novo (' + err.code + ').';
   });
 });
+
+// Estudos calculados a partir dos retratos existentes, sem alterar documentos.
+var studyFrom=document.getElementById('studyFrom'),studyTo=document.getElementById('studyTo');
+function syncStudyDates(date){
+  var previous=studyFrom.value;studyFrom.replaceChildren();studyTo.replaceChildren();
+  availableDates.filter(function(d){return d.slice(0,4)===date.slice(0,4);}).forEach(function(d){studyFrom.add(new Option(fmtDate(d),d));studyTo.add(new Option(fmtDate(d),d));});
+  if(availableDates.includes(previous)&&previous.slice(0,4)===date.slice(0,4))studyFrom.value=previous;studyTo.value=date;
+}
+studyFrom.addEventListener('change',renderStudies);studyTo.addEventListener('change',renderStudies);
+function studyTotal(rows){var t={orcado:0,empenho:0,liquidacao:0,pagamento:0,saldoOrc:0,saldoLiq:0,saldoPagar:0};rows.forEach(function(r){Object.keys(t).forEach(function(k){t[k]+=r[k];});});return t;}
+function studyMoney(v){return 'R$ '+fmt(v);}
+function renderStudies(){
+  var host=document.getElementById('studiesContent');if(!lastCurrentSnap){host.innerHTML='<p class="muted">Carregue um retrato para começar.</p>';return;}
+  var date=lastCurrentSnap.date,rows=visibleRows(lastCurrentSnap),t=studyTotal(rows),html='<p class="muted">Referência '+fmtDate(date)+' · '+rows.length+' centros após os filtros</p>';
+  html+='<div class="study-metrics">'+[['Saldo disponível',t.saldoOrc],['Empenhado a liquidar',t.saldoLiq],['Liquidado a pagar',t.saldoPagar]].map(function(x){return '<div class="card"><div class="label">'+x[0]+'</div><strong>'+studyMoney(x[1])+'</strong></div>';}).join('')+'</div>';
+  var negative=rows.filter(function(r){return r.saldoOrc< -0.005;});var inconsistent=rows.filter(function(r){return r.saldoLiq< -0.005||r.saldoPagar< -0.005;});
+  if(negative.length||inconsistent.length)html+='<p class="import-warning">Conferência: '+negative.length+' centros com saldo orçamentário negativo; '+inconsistent.length+' com liquidado acima do empenhado ou pago acima do liquidado. Esses valores podem incluir ajustes ou divergências da fonte.</p>';
+  if(!lastCurrentSnap.origem || lastCurrentSnap.origem.parserVersion<3)html+='<p class="import-warning">Retrato antigo: confira a leitura de Na Data antes de usar esta análise.</p>';
+  var rank=rows.slice().sort(function(a,b){return b.saldoOrc-a.saldoOrc||a.centro.localeCompare(b.centro);}).slice(0,10);var max=Math.max(1,...rank.map(function(r){return Math.abs(r.saldoOrc);}));
+  html+='<div class="card"><h3>10 maiores saldos do orçamento</h3><p class="muted">Disponibilidade por centro na referência selecionada.</p>'+rank.map(function(r){return '<div class="study-rank"><span>'+escHtml(r.centro)+'</span><strong>'+studyMoney(r.saldoOrc)+'</strong><div class="study-bar"><span style="width:'+Math.min(100,Math.abs(r.saldoOrc)/max*100)+'% ;background:'+(r.saldoOrc<0?'#b5473a':'#5f8054')+'"></span></div></div>';}).join('')+(rank.length?'':'<p>Nenhum centro atende aos filtros.</p>')+'</div>';
+  var months={};availableDates.filter(function(d){return d.slice(0,4)===date.slice(0,4)&&d<=date;}).forEach(function(d){months[d.slice(0,7)]=d;});
+  html+='<div class="card"><h3>Evolução das posições em '+date.slice(0,4)+'</h3><p class="muted">Último retrato disponível de cada mês, até a referência selecionada. Categorias e busca são aplicadas; o filtro de saldo é aplicado em cada posição e pode mudar o conjunto de centros.</p><div class="study-table"><table><thead><tr><th>Data</th><th>Centros</th><th>Orçado</th><th>Empenhado</th><th>Liquidado</th><th>Pago</th><th>Saldo disponível</th></tr></thead><tbody>';
+  Object.values(months).forEach(function(d){var rr=visibleRows(snapshotsByDate[d]),tt=studyTotal(rr);html+='<tr><td>'+fmtDate(d)+'</td><td>'+rr.length+'</td>'+['orcado','empenho','liquidacao','pagamento','saldoOrc'].map(function(k){return '<td>'+studyMoney(tt[k])+'</td>';}).join('')+'</tr>';});html+='</tbody></table></div></div>';
+  var from=studyFrom.value,to=studyTo.value;
+  if(from&&to){if(from>to)html+='<p class="import-warning">Selecione uma posição inicial anterior ou igual à final.</p>';else{
+    var old=rowsFromSnapshot(snapshotsByDate[from]),current=visibleRows(snapshotsByDate[to]);var oldMap=Object.fromEntries(old.map(function(r){return [r.centro,r];}));var newMap=Object.fromEntries(rowsFromSnapshot(snapshotsByDate[to]).map(function(r){return [r.centro,r];}));
+    html+='<div class="card"><h3>Variação entre '+fmtDate(from)+' e '+fmtDate(to)+'</h3><p class="muted">Conjunto de centros definido pelos filtros na posição final. Valores negativos indicam redução, ajuste ou estorno.</p><div class="study-table"><table><thead><tr><th>Centro</th><th>Δ Empenhado</th><th>Δ Liquidado</th><th>Δ Pago</th><th>Δ Saldo</th></tr></thead><tbody>';
+    current.forEach(function(r){var o=oldMap[r.centro];html+='<tr><td>'+escHtml(r.centro)+'</td>'+(o?['empenho','liquidacao','pagamento','saldoOrc'].map(function(k){return '<td>'+fmtSigned(r[k]-o[k])+'</td>';}).join(''):'<td colspan="4">Ausente na posição inicial; comparação indisponível</td>')+'</tr>';});
+    var missing=old.filter(function(r){return !newMap[r.centro]&&passesFilter(r.centro);});html+='</tbody></table></div>'+(missing.length?'<p class="import-warning">Ausentes na posição final: '+missing.map(function(r){return escHtml(r.centro);}).join(', ')+'. Não foram tratados como zero.</p>':'')+'</div>';
+  }}host.innerHTML=html;
+}

@@ -36,6 +36,7 @@
         <div class="sidebar-sub">CAU/PR</div>
       </div>
       <button class="nav-item active" data-view="inicio">Situação atual</button>
+      <button class="nav-item" data-view="estudos">Estudos</button>
       <button class="nav-item master-only" data-view="categorias">Categorias</button>
       <button class="nav-item master-only" data-view="retratos">Retratos (upload)</button>
       <button class="nav-item master-only" data-view="backup">Backup</button>
@@ -48,22 +49,18 @@
 
     <main class="main-content">
 
-      <section id="view-inicio" class="view">
-        <h2>Situação atual</h2>
-        <div class="row" style="margin: 14px 0; align-items:flex-start;">
-          <div class="multi-combo" id="catMultiCombo">
-            <label>Categoria</label>
-            <button type="button" class="btn" id="catMultiBtn">Todas as categorias</button>
-            <div class="multi-combo-panel" id="catMultiPanel">
-              <div class="multi-combo-actions">
-                <button type="button" class="btn" id="catMultiAll">Marcar todas</button>
-                <button type="button" class="btn" id="catMultiNone">Desmarcar todas</button>
-              </div>
-              <div id="catMultiList"></div>
-            </div>
+      <div id="budgetControls">
+        <div class="card filter-card">
+          <h3>Categorias visíveis</h3>
+          <p class="muted">Clique para ligar ou desligar uma categoria inteira. Os filtros valem para os cartões, o resumo e os estudos.</p>
+          <div class="filter-actions"><button class="btn" id="catMultiAll">Ligar todas</button><button class="btn" id="catMultiNone">Desligar todas</button><span id="categorySelectionStatus" role="status"></span></div>
+          <div id="catMultiList" class="category-toggles" role="group" aria-label="Categorias visíveis"></div>
+          <div class="filter-fields">
+            <label>Buscar centro de custo<input type="text" id="filterBusca" placeholder="Nome ou código…" /></label>
+            <label>Ordenar pelo saldo do orçamento<select id="balanceOrder"><option value="desc">Maior para menor</option><option value="asc">Menor para maior</option><option value="name">Nome do centro</option></select></label>
+            <label>Saldos exibidos<select id="balanceScope"><option value="all">Todos os saldos</option><option value="positive">Saldo disponível (positivo)</option><option value="zero">Saldo zerado</option><option value="negative">Saldo negativo</option></select></label>
+            <button class="btn" id="filterClear">Limpar filtros</button>
           </div>
-          <div style="flex:1; min-width:200px;"><label>Buscar centro de custo</label><input type="text" id="filterBusca" placeholder="ex: fiscalização..." style="width:100%;" /></div>
-          <button class="btn" id="filterClear">Limpar filtros</button>
         </div>
         <div class="card" id="dateSliderCard">
           <h3>Posição do orçamento em <span id="referenceHeading">—</span></h3><div class="reference-controls"><label>Mês de referência<select id="referenceMonth" disabled></select></label><label>Data disponível<select id="referenceDate" disabled></select></label></div>
@@ -73,9 +70,19 @@
           </div>
           <p class="muted" style="margin:6px 0 0;">A barra percorre os retratos importados. O mês abre sua última data disponível; os valores representam a coluna Na Data dessa referência, sem interpolação.</p>
         </div>
+      </div>
+      <section id="view-inicio" class="view"><h2>Situação atual</h2>
         <div class="card" id="currentCard"><p class="muted">Carregando...</p></div>
         <h2 style="margin-top:28px;">Resumo por categoria</h2>
         <div class="card" id="categorySummaryCard"><p class="muted">Carregando...</p></div>
+      </section>
+
+      <section id="view-estudos" class="view" style="display:none;">
+        <h2>Estudos do orçamento</h2>
+        <p class="muted">Análises dos retratos carregados, considerando as categorias e a busca selecionadas. Nenhum novo upload é necessário.</p>
+        <div class="card"><h3>Comparar duas posições</h3><div class="reference-controls"><label>Posição inicial<select id="studyFrom"></select></label><label>Posição final<select id="studyTo"></select></label></div><p class="muted">Variação entre posições acumuladas; não equivale necessariamente à movimentação do período. Centros ausentes são sinalizados.</p></div>
+        <div id="studiesContent"></div>
+        <div class="card"><h3>Como interpretar</h3><p>Saldo disponível = saldo orçamentário do retrato. A liquidar = empenhado − liquidado. A pagar = liquidado − pago. Percentual pago = pago ÷ orçado.</p><p>Meses sem retrato não recebem valores estimados. Retratos antigos conservam seus valores e são sinalizados para conferência.</p><p>Referências: <a href="https://www.usaspending.gov/explorer" target="_blank" rel="noopener">USAspending</a>, <a href="https://www.gov.uk/government/statistics/public-spending-statistics-release-december-2025" target="_blank" rel="noopener">Tesouro britânico</a>, <a href="https://transparencia.gob.es/publicidad-activa/por-materias/informacion-economico-presupuestaria/ejecucion" target="_blank" rel="noopener">Portal da Transparência da Espanha</a>.</p></div>
       </section>
 
       <section id="view-detalheCentro" class="view" style="display:none;">

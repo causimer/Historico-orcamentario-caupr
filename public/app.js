@@ -1,895 +1,149 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {
-  getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {
-  getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Histórico Orçamentário · CAU/PR</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
 
-const firebaseConfig = {
-  apiKey: "AIzaSyAv2LqFU9nRf_FEaul0IoOiCX2vaNMHtKk",
-  authDomain: "historico-orcamentario-caupr.firebaseapp.com",
-  projectId: "historico-orcamentario-caupr",
-  storageBucket: "historico-orcamentario-caupr.firebasestorage.app",
-  messagingSenderId: "40791981660",
-  appId: "1:40791981660:web:b9770067e814b0baf3f099"
-};
+  <!-- tela de login -->
+  <div id="loginScreen" class="login-screen">
+    <div class="login-box">
+      <h1>Histórico orçamentário</h1>
+      <p class="muted">CAU/PR · acesse com seu login</p>
+      <input type="email" id="loginEmail" placeholder="E-mail" />
+      <input type="password" id="loginPassword" placeholder="Senha" />
+      <button class="btn primary" id="loginBtn" style="width:100%;">Entrar</button>
+      <p class="muted" id="loginError" style="color:#B5473A; min-height:16px; margin-top:10px;"></p>
+    </div>
+  </div>
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+  <!-- tela de "primeiro acesso" (configuração automática, sem escolha do usuário) -->
+  <div id="onboardScreen" class="login-screen" style="display:none;">
+    <div class="login-box">
+      <h1>Só um instante</h1>
+      <p class="muted" id="onboardMsg">Preparando sua conta...</p>
+    </div>
+  </div>
 
-let currentUser = null;   // { uid, email }
-let currentRole = null;   // 'master' | 'viewer'
-var todayISO = new Date().toISOString().slice(0,10);
+  <!-- app principal -->
+  <div id="appShell" class="app-shell" style="display:none;">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-title">Histórico<br/>orçamentário</div>
+        <div class="sidebar-sub">CAU/PR</div>
+      </div>
+      <button class="nav-item active" data-view="inicio">Situação atual</button>
+      <button class="nav-item master-only" data-view="categorias">Categorias</button>
+      <button class="nav-item master-only" data-view="retratos">Retratos (upload)</button>
+      <button class="nav-item master-only" data-view="backup">Backup</button>
+      <button class="nav-item" data-view="conta">Minha conta</button>
+      <div class="sidebar-footer">
+        <div class="sidebar-user" id="sidebarUser"></div>
+        <button class="btn" id="logoutBtn" style="width:100%;">Sair</button>
+      </div>
+    </nav>
 
-// ---------- elementos ----------
-const loginScreen = document.getElementById('loginScreen');
-const onboardScreen = document.getElementById('onboardScreen');
-const appShell = document.getElementById('appShell');
-const loginEmail = document.getElementById('loginEmail');
-const loginPassword = document.getElementById('loginPassword');
-const loginBtn = document.getElementById('loginBtn');
-const loginError = document.getElementById('loginError');
-const onboardMsg = document.getElementById('onboardMsg');
-const sidebarUser = document.getElementById('sidebarUser');
-const logoutBtn = document.getElementById('logoutBtn');
+    <main class="main-content">
 
-// ---------- login ----------
-loginBtn.addEventListener('click', function(){
-  loginError.textContent = '';
-  signInWithEmailAndPassword(auth, loginEmail.value.trim(), loginPassword.value)
-    .catch(function(err){ loginError.textContent = 'E-mail ou senha incorretos.'; });
-});
-loginPassword.addEventListener('keydown', function(e){ if (e.key === 'Enter') loginBtn.click(); });
+      <section id="view-inicio" class="view">
+        <h2>Situação atual</h2>
+        <div class="row" style="margin: 14px 0; align-items:flex-start;">
+          <div class="multi-combo" id="catMultiCombo">
+            <label>Categoria</label>
+            <button type="button" class="btn" id="catMultiBtn">Todas as categorias</button>
+            <div class="multi-combo-panel" id="catMultiPanel">
+              <div class="multi-combo-actions">
+                <button type="button" class="btn" id="catMultiAll">Marcar todas</button>
+                <button type="button" class="btn" id="catMultiNone">Desmarcar todas</button>
+              </div>
+              <div id="catMultiList"></div>
+            </div>
+          </div>
+          <div style="flex:1; min-width:200px;"><label>Buscar centro de custo</label><input type="text" id="filterBusca" placeholder="ex: fiscalização..." style="width:100%;" /></div>
+          <button class="btn" id="filterClear">Limpar filtros</button>
+        </div>
+        <div class="card" id="dateSliderCard">
+          <label>Data de referência (YTD)</label>
+          <div class="slider-row">
+            <input type="range" id="dateSlider" min="0" max="0" value="0" step="1" />
+            <span class="slider-date" id="dateSliderLabel">—</span>
+          </div>
+          <p class="muted" style="margin:6px 0 0;">Exibindo a posição importada para a data selecionada, usando exclusivamente a coluna Na Data do SISCONT.</p>
+        </div>
+        <div class="card" id="currentCard"><p class="muted">Carregando...</p></div>
+        <h2 style="margin-top:28px;">Resumo por categoria</h2>
+        <div class="card" id="categorySummaryCard"><p class="muted">Carregando...</p></div>
+      </section>
 
-logoutBtn.addEventListener('click', function(){ signOut(auth); });
+      <section id="view-detalheCentro" class="view" style="display:none;">
+        <button class="btn" id="detalheVoltarBtn" style="margin-bottom:16px;">← Voltar</button>
+        <h2 id="detalheCentroTitulo">Centro de custo</h2>
+        <p class="muted" id="detalheCentroData" style="margin:2px 0 18px;"></p>
+        <div class="card" id="detalheCentroCard"><p class="muted">Carregando...</p></div>
+      </section>
 
-function provisionNewUser(user){
-  onboardMsg.textContent = 'Preparando sua conta...';
-  return getDoc(doc(db, 'config', 'roles')).then(function(rolesSnap){
-    var masterEmail = rolesSnap.exists() ? rolesSnap.data().masterEmail : null;
-    var role = (masterEmail && user.email === masterEmail) ? 'master' : 'viewer';
-    return setDoc(doc(db, 'users', user.uid), {
-      email: user.email, role: role, displayName: user.email.split('@')[0]
-    }).then(function(){ return role; });
-  });
-}
+      <section id="view-categorias" class="view master-only" style="display:none;">
+        <h2>Categorias de despesa</h2>
+        <div class="card">
+          <p class="muted" style="margin:0 0 12px;">Cada centro de custo recebe uma categoria sugerida automaticamente — ajuste como quiser. A cor escolhida aqui é usada nos cartões da Situação atual.</p>
+          <div class="row" style="margin-bottom:14px;">
+            <div style="flex:1; min-width:200px;"><label>Nova categoria</label><input type="text" id="newCatInput" placeholder="ex: Eventos institucionais" style="width:100%;" /></div>
+            <button class="btn" id="newCatBtn">Adicionar categoria</button>
+          </div>
+          <h3 style="font-size:13px; margin-bottom:8px;">Cor de cada categoria</h3>
+          <div id="catColorList" style="margin-bottom:20px;"></div>
+          <h3 style="font-size:13px; margin-bottom:8px;">Categoria de cada centro de custo</h3>
+          <div style="overflow-x:auto; max-height:420px; overflow-y:auto;">
+            <table id="catTable"><thead><tr><th>Centro de custo</th><th>Categoria</th></tr></thead><tbody></tbody></table>
+          </div>
+        </div>
+      </section>
 
-// ---------- observador de autenticação ----------
-onAuthStateChanged(auth, function(user){
-  if (!user){
-    currentUser = null; currentRole = null;
-    loginScreen.style.display = 'flex';
-    onboardScreen.style.display = 'none';
-    appShell.style.display = 'none';
-    return;
-  }
-  currentUser = user;
-  getDoc(doc(db, 'users', user.uid)).then(function(snap){
-    if (snap.exists()){
-      currentRole = snap.data().role;
-      enterApp();
-    } else {
-      loginScreen.style.display = 'none';
-      onboardScreen.style.display = 'flex';
-      provisionNewUser(user).then(function(role){
-        currentRole = role;
-        enterApp();
-      }).catch(function(err){
-        onboardMsg.textContent = 'Não foi possível preparar sua conta. Peça para o master verificar o acesso. (' + err.message + ')';
-      });
-    }
-  });
-});
+      <section id="view-retratos" class="view master-only" style="display:none;">
+        <h2>Retratos (upload)</h2>
+        <div class="card">
+          <div class="row">
+            <div><label>Relatório de Disponibilidade Orçamentária bruto do SISCONT (.xlsx/.xls) — pode selecionar vários arquivos de uma vez, a data de cada um é lida do nome do arquivo</label><input type="file" id="fileInput" accept=".xlsx,.xls" multiple /></div>
+            <button class="btn primary" id="saveBtn" disabled>Salvar retrato(s)</button>
+          </div>
+          <p class="import-warning">Importação: saldo orçamentário, empenhado, liquidado e pago usam exclusivamente Na Data. Para corrigir retratos antigos, reimporte os relatórios correspondentes.</p>
+          <p class="muted" id="parseStatus" style="margin:12px 0 0;"></p>
+        </div>
+        <div class="card">
+          <div id="chipsWrap"><span class="muted">Nenhum retrato salvo ainda.</span></div>
+        </div>
+      </section>
 
-function enterApp(){
-  loginScreen.style.display = 'none';
-  onboardScreen.style.display = 'none';
-  appShell.style.display = 'flex';
-  sidebarUser.textContent = currentUser.email + ' · ' + (currentRole === 'master' ? 'master' : 'visualizador(a)');
-  document.querySelectorAll('.master-only').forEach(function(el){
-    el.style.display = (currentRole === 'master') ? '' : 'none';
-  });
-  initDataAndViews();
-}
+      <section id="view-backup" class="view master-only" style="display:none;">
+        <h2>Backup</h2>
+        <div class="card">
+          <p class="muted" style="margin:0 0 12px;">Baixe uma cópia de segurança de todo o histórico salvo na nuvem.</p>
+          <button class="btn primary" id="exportBtn">Exportar histórico completo (.json)</button>
+        </div>
+      </section>
 
-// ---------- navegação da barra lateral ----------
-document.querySelectorAll('.nav-item[data-view]').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    document.querySelectorAll('.nav-item').forEach(function(b){ b.classList.remove('active'); });
-    btn.classList.add('active');
-    document.querySelectorAll('.view').forEach(function(v){ v.style.display = 'none'; });
-    document.getElementById('view-' + btn.dataset.view).style.display = 'block';
-  });
-});
+      <section id="view-conta" class="view" style="display:none;">
+        <h2>Minha conta</h2>
+        <div class="card">
+          <p class="muted" id="contaInfo" style="margin:0 0 16px;"></p>
+          <label>Nova senha</label>
+          <input type="password" id="newPasswordInput" placeholder="Digite a nova senha" style="width:100%; max-width:320px; margin-bottom:10px;" />
+          <div><button class="btn primary" id="changePasswordBtn">Trocar minha senha</button></div>
+          <p class="muted" id="passwordMsg" style="margin-top:10px;"></p>
+        </div>
+        <div class="card master-only" id="manageAccessCard">
+          <h3 style="font-size:14px; margin-bottom:10px;">Gerenciar acesso</h3>
+          <p class="muted" style="margin:0 0 12px;">Para dar acesso a alguém: no <a href="https://console.firebase.google.com" target="_blank" style="color:#2E5A8C;">Firebase Console → Authentication → Users → Add user</a>, crie o e-mail/senha da pessoa. No primeiro login dela no sistema, o acesso é liberado automaticamente como visualizador(a) — você não precisa fazer mais nada aqui. Só o e-mail cadastrado como master (em Firestore → config → roles) entra com acesso completo.</p>
+        </div>
+      </section>
 
-// ---------- utilitários ----------
-function stripAccents(s){ return (s||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); }
-function fmt(n){ if (n === null || n === undefined || isNaN(n)) return '—'; return n.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}); }
-function fmtSigned(n){ if (n === null || n === undefined || isNaN(n)) return '—'; var s = fmt(Math.abs(n)); return (n<0?'−':(n>0?'+':'')) + s; }
-function fmtDate(iso){ var p = iso.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
+    </main>
+  </div>
 
-// ---------- Firestore: snapshots (retrato por data, com detalhe por conta contábil) ----------
-// Coleção 'snapshotsDetalhe': cada retrato guarda, por centro de custo, o
-// subtotal e a lista de contas contábeis. É a única fonte de dados do
-// sistema — alimentada pelo upload do relatório bruto do SISCONT.
-function listSnapshotDates(){
-  return getDocs(collection(db, 'snapshotsDetalhe')).then(function(qs){
-    var dates = []; qs.forEach(function(d){ dates.push(d.id); }); return dates.sort();
-  });
-}
-function loadSnapshot(date){
-  return getDoc(doc(db, 'snapshotsDetalhe', date)).then(function(d){ return d.exists() ? d.data() : null; });
-}
-function saveSnapshot(date, centros, totalGeral){
-  return setDoc(doc(db, 'snapshotsDetalhe', date), { date: date, centros: centros, totalGeral: totalGeral, savedAt: new Date().toISOString(), ownerId: currentUser.uid, origem: { coluna: 'na_data', parserVersion: 3 } });
-}
-function deleteSnapshot(date){
-  return deleteDoc(doc(db, 'snapshotsDetalhe', date));
-}
-
-// Converte o retrato (centros -> subtotal por Orç.Desbloq/Empenhado/Liquidado/Pago)
-// na lógica de cálculo de sempre: o Orçado é uma referência FIXA que não se
-// altera conforme o dinheiro é empenhado/liquidado/pago — só os saldos mudam.
-// Reconstrução validada: Orçado = Orç.Desbloq (atual) + Empenhado (atual),
-// pois o relatório bruto do SISCONT só informa o que "sobra" a cada etapa
-// (Orç.Desbloq. já É o Saldo do Orçamento), não o total original.
-function rowsFromSnapshot(snap){
-  if (!snap || !snap.centros) return [];
-  return Object.keys(snap.centros).map(function(centro){
-    var s = snap.centros[centro].subtotal;
-    var orcado = s.Orc_Desbloq + s.Empenhado;
-    return {
-      centro: centro,
-      orcado: orcado,
-      empenho: s.Empenhado,
-      liquidacao: s.Liquidado,
-      pagamento: s.Pago,
-      saldoOrc: s.Orc_Desbloq,
-      saldoLiq: s.Empenhado - s.Liquidado,
-      saldoPagar: s.Liquidado - s.Pago
-    };
-  });
-}
-
-// ---------- Firestore: apelidos de conta contábil ----------
-function loadApelidosDoc(){
-  return getDoc(doc(db, 'config', 'apelidosContas')).then(function(d){ return d.exists() ? d.data() : { map:{} }; });
-}
-function saveApelidosDoc(data){ return setDoc(doc(db, 'config', 'apelidosContas'), data); }
-var apelidosState = { map:{} };
-function nomeExibicaoConta(conta){
-  return (apelidosState.map && apelidosState.map[conta]) ? apelidosState.map[conta] : conta;
-}
-
-// ---------- Firestore: categorias ----------
-var DEFAULT_CATS = ['Comissões','Fiscalização','Atendimento','Fundo de Apoio','Projetos','Administrativo/Outros'];
-function loadCategoriasDoc(){
-  return getDoc(doc(db, 'config', 'categorias')).then(function(d){
-    return d.exists() ? d.data() : { map: {}, list: DEFAULT_CATS.slice(), colors: {} };
-  });
-}
-function saveCategoriasDoc(data){ return setDoc(doc(db, 'config', 'categorias'), data); }
-
-function suggestCategory(nome){
-  if (/^0[2-9]\s*-/.test(nome)) return 'Comissões';
-  var n = stripAccents(nome);
-  if (n.indexOf('fiscalizacao') !== -1) return 'Fiscalização';
-  if (n.indexOf('atendimento') !== -1) return 'Atendimento';
-  if (n.indexOf('fundo de apoio') !== -1) return 'Fundo de Apoio';
-  if (n.indexOf('projeto') !== -1) return 'Projetos';
-  if (n.indexOf('comissao') !== -1 || n.indexOf('camara') !== -1 || n.indexOf('conselho diretor') !== -1) return 'Comissões';
-  return 'Administrativo/Outros';
-}
-
-// ---------- estado em memória (cache local pós-login) ----------
-var catState = { map: {}, list: DEFAULT_CATS.slice(), colors: {} };
-var lastCurrentSnap = null;
-var selectedCategories = null; // null = todas selecionadas
-
-// Detecta chaves de categoria salvas com o nome cru do SISCONT (de uploads
-// feitos antes do mapeamento existir) e migra pro nome padronizado,
-// eliminando duplicatas na tela de Categorias. Roda automaticamente, sem
-// precisar de botão — e é seguro rodar toda vez (não faz nada se já estiver tudo limpo).
-function migrarNomenclaturaAntiga(){
-  var changed = false;
-  Object.keys(catState.map).forEach(function(key){
-    var resolvido = resolverNomeCentro(key).nome;
-    if (resolvido !== key){
-      if (catState.map[resolvido]){
-        delete catState.map[key];
-      } else {
-        catState.map[resolvido] = catState.map[key];
-        delete catState.map[key];
-      }
-      changed = true;
-    }
-  });
-  return changed;
-}
-
-function initDataAndViews(){
-  Promise.all([loadCategoriasDoc(), listSnapshotDates(), loadApelidosDoc()]).then(function(res){
-    catState = res[0];
-    if (!catState.colors) catState.colors = {};
-    var dates = res[1];
-    apelidosState = res[2];
-    if (!apelidosState.map) apelidosState.map = {};
-    var changed = currentRole === 'master' ? migrarNomenclaturaAntiga() : false;
-    return Promise.all(dates.map(loadSnapshot)).then(function(snaps){
-      snaps.forEach(function(snap){
-        rowsFromSnapshot(snap).forEach(function(r){
-          if (!catState.map[r.centro]){ catState.map[r.centro] = suggestCategory(r.centro); changed = true; }
-        });
-      });
-      var save = changed && currentRole === 'master' ? saveCategoriasDoc(catState) : Promise.resolve();
-      return save.then(function(){
-        selectedCategories = catState.list.slice();
-        renderCatMultiList();
-        updateCatMultiBtnLabel();
-        renderCatColorList();
-        renderCatTable();
-        renderSnapshotChips(dates);
-        setupDateSlider(dates, snaps);
-        lastCurrentSnap = dates.length ? snapshotsByDate[dates[dates.length-1]] : null;
-        renderCurrent(lastCurrentSnap);
-        renderCategorySummary(lastCurrentSnap);
-      });
-    });
-  });
-  document.getElementById('contaInfo').textContent = 'Logado como ' + currentUser.email + ' (' + (currentRole==='master'?'master':'visualizador(a)') + ').';
-}
-
-// escapa texto digitado pelo usuário antes de colocar em HTML
-function escHtml(s){
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// ---------- filtros ----------
-var filterBusca = document.getElementById('filterBusca');
-var catMultiCombo = document.getElementById('catMultiCombo');
-var catMultiBtn = document.getElementById('catMultiBtn');
-var catMultiPanel = document.getElementById('catMultiPanel');
-var catMultiList = document.getElementById('catMultiList');
-var catMultiAllBtn = document.getElementById('catMultiAll');
-var catMultiNoneBtn = document.getElementById('catMultiNone');
-
-document.getElementById('filterClear').addEventListener('click', function(){
-  selectedCategories = catState.list.slice();
-  filterBusca.value = '';
-  renderCatMultiList(); updateCatMultiBtnLabel(); refreshFilteredViews();
-});
-filterBusca.addEventListener('input', refreshFilteredViews);
-
-catMultiBtn.addEventListener('click', function(e){
-  e.stopPropagation();
-  catMultiPanel.classList.toggle('open');
-});
-document.addEventListener('click', function(e){
-  if (!catMultiCombo.contains(e.target)) catMultiPanel.classList.remove('open');
-});
-catMultiAllBtn.addEventListener('click', function(){
-  selectedCategories = catState.list.slice();
-  renderCatMultiList(); updateCatMultiBtnLabel(); refreshFilteredViews();
-});
-catMultiNoneBtn.addEventListener('click', function(){
-  selectedCategories = [];
-  renderCatMultiList(); updateCatMultiBtnLabel(); refreshFilteredViews();
-});
-
-function renderCatMultiList(){
-  if (selectedCategories === null) selectedCategories = catState.list.slice();
-  catMultiList.innerHTML = '';
-  catState.list.forEach(function(c){
-    var row = document.createElement('label');
-    row.className = 'multi-combo-item';
-    var cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = selectedCategories.indexOf(c) !== -1;
-    cb.addEventListener('change', function(){
-      if (cb.checked){ if (selectedCategories.indexOf(c) === -1) selectedCategories.push(c); }
-      else { selectedCategories = selectedCategories.filter(function(x){ return x !== c; }); }
-      updateCatMultiBtnLabel();
-      refreshFilteredViews();
-    });
-    var swatch = document.createElement('span');
-    swatch.className = 'multi-combo-swatch';
-    swatch.style.background = (catState.colors && catState.colors[c]) || '#F5F1E7';
-    var txt = document.createElement('span');
-    txt.textContent = c;
-    row.appendChild(cb); row.appendChild(swatch); row.appendChild(txt);
-    catMultiList.appendChild(row);
-  });
-}
-function updateCatMultiBtnLabel(){
-  if (selectedCategories === null || selectedCategories.length === catState.list.length){ catMultiBtn.textContent = 'Todas as categorias'; }
-  else if (selectedCategories.length === 0){ catMultiBtn.textContent = 'Nenhuma categoria'; }
-  else { catMultiBtn.textContent = selectedCategories.length + ' selecionada(s)'; }
-}
-
-function passesFilter(centro){
-  if (selectedCategories !== null){
-    var cat = catState.map[centro];
-    if (selectedCategories.indexOf(cat) === -1) return false;
-  }
-  var busca = stripAccents(filterBusca.value.trim());
-  if (busca && stripAccents(centro).indexOf(busca) === -1) return false;
-  return true;
-}
-function refreshFilteredViews(){
-  if (lastCurrentSnap){ renderCurrent(lastCurrentSnap); renderCategorySummary(lastCurrentSnap); }
-}
-
-// ---------- categorias (tabela + cores) ----------
-var catTableBody = document.querySelector('#catTable tbody');
-var catColorList = document.getElementById('catColorList');
-document.getElementById('newCatBtn').addEventListener('click', function(){
-  var name = (document.getElementById('newCatInput').value || '').trim();
-  if (!name || currentRole !== 'master') return;
-  if (catState.list.indexOf(name) === -1){
-    catState.list.push(name);
-    saveCategoriasDoc(catState).then(function(){
-      selectedCategories = catState.list.slice();
-      renderCatMultiList(); updateCatMultiBtnLabel(); renderCatColorList(); renderCatTable();
-    });
-  }
-  document.getElementById('newCatInput').value = '';
-});
-
-function renderCatColorList(){
-  if (!catColorList) return;
-  if (!catState.colors) catState.colors = {};
-  catColorList.innerHTML = '';
-  catState.list.forEach(function(c){
-    var row = document.createElement('div');
-    row.className = 'cat-color-row';
-    var input = document.createElement('input');
-    input.type = 'color';
-    input.value = catState.colors[c] || '#F5F1E7';
-    input.addEventListener('change', function(){
-      catState.colors[c] = input.value;
-      saveCategoriasDoc(catState).then(function(){ renderCatMultiList(); refreshFilteredViews(); });
-    });
-    var name = document.createElement('span');
-    name.className = 'cat-color-name';
-    name.textContent = c;
-    row.appendChild(input); row.appendChild(name);
-    catColorList.appendChild(row);
-  });
-}
-
-function renderCatTable(){
-  var centros = Object.keys(catState.map).sort(function(a,b){return a.localeCompare(b);});
-  catTableBody.innerHTML = '';
-  if (!centros.length){ catTableBody.innerHTML = '<tr><td colspan="2" class="muted">Nenhum retrato salvo ainda.</td></tr>'; return; }
-  centros.forEach(function(centro){
-    var tr = document.createElement('tr');
-    var tdCentro = document.createElement('td'); tdCentro.textContent = centro;
-    var tdSel = document.createElement('td');
-    if (currentRole === 'master'){
-      var sel = document.createElement('select');
-      catState.list.forEach(function(c){ var o=document.createElement('option'); o.value=c; o.textContent=c; if (c===catState.map[centro]) o.selected=true; sel.appendChild(o); });
-      sel.addEventListener('change', function(){
-        catState.map[centro] = sel.value;
-        saveCategoriasDoc(catState).then(refreshFilteredViews);
-      });
-      tdSel.appendChild(sel);
-    } else {
-      tdSel.textContent = catState.map[centro] || '—';
-    }
-    tr.appendChild(tdCentro); tr.appendChild(tdSel);
-    catTableBody.appendChild(tr);
-  });
-}
-
-// ---------- situação atual ----------
-var currentCard = document.getElementById('currentCard');
-function renderCurrent(snap){
-  var todasRows = rowsFromSnapshot(snap);
-  if (!todasRows.length){ currentCard.innerHTML = '<p class="muted">Nenhum retrato salvo ainda.</p>'; return; }
-  var rows = todasRows.filter(function(r){ return passesFilter(r.centro); }).sort(function(a,b){return a.centro.localeCompare(b.centro);});
-  var tot = {orcado:0,empenho:0,liquidacao:0,pagamento:0,saldoOrc:0,saldoLiq:0,saldoPagar:0};
-  rows.forEach(function(r){ tot.orcado+=r.orcado; tot.empenho+=r.empenho; tot.liquidacao+=r.liquidacao; tot.pagamento+=r.pagamento; tot.saldoOrc+=r.saldoOrc; tot.saldoLiq+=r.saldoLiq; tot.saldoPagar+=r.saldoPagar; });
-  var pct = tot.orcado ? (tot.pagamento/tot.orcado*100) : 0;
-  var html = '<p class="muted" style="margin:0 0 12px;">Referente a ' + fmtDate(snap.date) + ' · ' + rows.length + ' de ' + todasRows.length + ' centros exibidos</p>';
-  if (!snap.origem || snap.origem.coluna !== 'na_data' || snap.origem.parserVersion !== 3) html += '<p class="import-warning">Este retrato foi salvo com uma versão anterior. Reimporte o relatório para aplicar a leitura exclusiva de Na Data.</p>';
-  html += '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px; margin-bottom:18px;">';
-  html += '<div class="metric"><div class="label">Orçado total</div><div class="value">R$ '+fmt(tot.orcado)+'</div></div>';
-  html += '<div class="metric"><div class="label">Pago até aqui</div><div class="value">R$ '+fmt(tot.pagamento)+'</div></div>';
-  html += '<div class="metric blue"><div class="label">Saldo de orçamento</div><div class="value">R$ '+fmt(tot.saldoOrc)+'</div></div>';
-  html += '<div class="metric orange"><div class="label">% executado</div><div class="value">'+pct.toFixed(2)+'%</div></div></div>';
-  if (!rows.length){ html += '<p class="muted">Nenhum centro de custo corresponde ao filtro atual.</p>'; currentCard.innerHTML = html; return; }
-
-  // ----- visão geral consolidada da seleção atual (mesmas somas e fórmulas dos cartões) -----
-  var todasSelecionadas = (selectedCategories === null || selectedCategories.length === catState.list.length);
-  var buscaAtiva = filterBusca.value.trim();
-  var rotuloSelecao = todasSelecionadas ? 'Todas as categorias' : selectedCategories.map(escHtml).join(' + ');
-  if (buscaAtiva) rotuloSelecao += ' · busca: "' + escHtml(buscaAtiva) + '"';
-  var gPctEmp = tot.orcado ? (tot.empenho / tot.orcado * 100) : 0;
-  var gPctLiq = tot.orcado ? (tot.liquidacao / tot.orcado * 100) : 0;
-  var gPctPag = tot.orcado ? (tot.pagamento / tot.orcado * 100) : 0;
-  html += '<div class="cc-geral">';
-  html += '<div class="cc-name">Visão geral</div>';
-  html += '<div class="cc-cat">'+rotuloSelecao+' · '+rows.length+' centro(s) de custo</div>';
-  html += '<div class="cc-orcado">Orçado: <strong>R$ '+fmt(tot.orcado)+'</strong></div>';
-  html += '<div class="geral-bars">';
-  html += '<div><div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(tot.empenho)+' · '+gPctEmp.toFixed(1)+'%</span></div><div class="pbar"><div class="pbar-fill empenho" style="width:'+Math.min(gPctEmp,100)+'%;"></div></div></div>';
-  html += '<div><div class="pbar-row"><span>Liquidado</span><span>R$ '+fmt(tot.liquidacao)+' · '+gPctLiq.toFixed(1)+'%</span></div><div class="pbar"><div class="pbar-fill liquidado" style="width:'+Math.min(gPctLiq,100)+'%;"></div></div></div>';
-  html += '<div><div class="pbar-row"><span>Pago</span><span>R$ '+fmt(tot.pagamento)+' · '+gPctPag.toFixed(1)+'%</span></div><div class="pbar"><div class="pbar-fill pago" style="width:'+Math.min(gPctPag,100)+'%;"></div></div></div>';
-  html += '</div>';
-  html += '<div class="cc-saldos">';
-  html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo do orçamento</div><div class="cc-saldo-value">R$ '+fmt(tot.saldoOrc)+'</div></div>';
-  html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a liquidar</div><div class="cc-saldo-value">R$ '+fmt(tot.saldoLiq)+'</div></div>';
-  html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a pagar</div><div class="cc-saldo-value">R$ '+fmt(tot.saldoPagar)+'</div></div>';
-  html += '</div></div>';
-
-  html += '<div class="cc-grid">';
-  rows.forEach(function(r){
-    var pctEmp = r.orcado ? (r.empenho / r.orcado * 100) : 0;
-    var pctLiq = r.orcado ? (r.liquidacao / r.orcado * 100) : 0;
-    var pctPag = r.orcado ? (r.pagamento / r.orcado * 100) : 0;
-    var cardColor = (catState.colors && catState.colors[catState.map[r.centro]]) || '';
-    html += '<div class="cc-card"' + (cardColor ? ' style="background:'+cardColor+';"' : '') + '>';
-    html += '<div class="cc-name">'+r.centro+'</div>';
-    html += '<div class="cc-cat">'+(catState.map[r.centro]||'sem categoria')+'</div>';
-    html += '<div class="cc-orcado">Orçado: <strong>R$ '+fmt(r.orcado)+'</strong></div>';
-    html += '<div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(r.empenho)+' · '+pctEmp.toFixed(1)+'%</span></div>';
-    html += '<div class="pbar"><div class="pbar-fill empenho'+(pctEmp>100?' over':'')+'" style="width:'+Math.min(pctEmp,100)+'%;"></div></div>';
-    html += '<div class="pbar-row"><span>Liquidado</span><span>R$ '+fmt(r.liquidacao)+' · '+pctLiq.toFixed(1)+'%</span></div>';
-    html += '<div class="pbar"><div class="pbar-fill liquidado'+(pctLiq>100?' over':'')+'" style="width:'+Math.min(pctLiq,100)+'%;"></div></div>';
-    html += '<div class="pbar-row"><span>Pago</span><span>R$ '+fmt(r.pagamento)+' · '+pctPag.toFixed(1)+'%</span></div>';
-    html += '<div class="pbar"><div class="pbar-fill pago'+(pctPag>100?' over':'')+'" style="width:'+Math.min(pctPag,100)+'%;"></div></div>';
-    html += '<div class="cc-saldos">';
-    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo do orçamento</div><div class="cc-saldo-value">R$ '+fmt(r.saldoOrc)+'</div></div>';
-    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a liquidar</div><div class="cc-saldo-value">R$ '+fmt(r.saldoLiq)+'</div></div>';
-    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a pagar</div><div class="cc-saldo-value">R$ '+fmt(r.saldoPagar)+'</div></div>';
-    html += '</div></div>';
-  });
-  html += '</div>';
-  currentCard.innerHTML = html;
-
-  var cardEls = currentCard.querySelectorAll('.cc-card');
-  cardEls.forEach(function(el, idx){
-    el.classList.add('clickable');
-    el.title = 'Ver contas contábeis deste centro de custo';
-    el.addEventListener('click', function(){ openDetalheCentro(rows[idx].centro, snap.date); });
-  });
-}
-
-// ---------- resumo por categoria ----------
-var categorySummaryCard = document.getElementById('categorySummaryCard');
-function renderCategorySummary(snap){
-  var todasRows = rowsFromSnapshot(snap);
-  if (!todasRows.length){ categorySummaryCard.innerHTML = '<p class="muted">Nenhum retrato salvo ainda.</p>'; return; }
-  var busca = stripAccents(filterBusca.value.trim());
-  var rows = todasRows.filter(function(r){ return !busca || stripAccents(r.centro).indexOf(busca) !== -1; });
-  var byCat = {};
-  rows.forEach(function(r){
-    var cat = catState.map[r.centro] || 'Sem categoria';
-    if (!byCat[cat]) byCat[cat] = {orcado:0,empenho:0,liquidacao:0,pagamento:0,saldoOrc:0,saldoLiq:0,saldoPagar:0,n:0};
-    byCat[cat].orcado+=r.orcado; byCat[cat].empenho+=r.empenho; byCat[cat].liquidacao+=r.liquidacao; byCat[cat].pagamento+=r.pagamento;
-    byCat[cat].saldoOrc+=r.saldoOrc; byCat[cat].saldoLiq+=r.saldoLiq; byCat[cat].saldoPagar+=r.saldoPagar; byCat[cat].n+=1;
-  });
-  var cats = Object.keys(byCat).sort(function(a,b){ return byCat[b].orcado - byCat[a].orcado; });
-  var html = '<div style="overflow-x:auto;"><table><thead><tr><th>Categoria</th><th>Centros</th><th>Orçado</th><th>Empenhado</th><th>Liquidado</th><th>Pago</th><th>Saldo orçamento</th><th>Saldo a liquidar</th><th>Saldo a pagar</th><th>% executado</th></tr></thead><tbody>';
-  cats.forEach(function(cat){
-    var c = byCat[cat]; var pct = c.orcado ? (c.pagamento/c.orcado*100) : 0;
-    html += '<tr><td>'+cat+'</td><td>'+c.n+'</td><td>'+fmt(c.orcado)+'</td><td>'+fmt(c.empenho)+'</td><td>'+fmt(c.liquidacao)+'</td><td>'+fmt(c.pagamento)+'</td><td>'+fmt(c.saldoOrc)+'</td><td>'+fmt(c.saldoLiq)+'</td><td>'+fmt(c.saldoPagar)+'</td><td>'+pct.toFixed(2)+'%</td></tr>';
-  });
-  html += '</tbody></table></div>';
-  categorySummaryCard.innerHTML = html;
-}
-
-// ---------- retratos (upload) — só master ----------
-var fileInput = document.getElementById('fileInput');
-var saveBtn = document.getElementById('saveBtn');
-var parseStatus = document.getElementById('parseStatus');
-var chipsWrap = document.getElementById('chipsWrap');
-
-function extractDateFromFilename(name){
-  var matches = name.match(/\d{8}/g);
-  if (!matches || !matches.length) return null;
-  var last = matches[matches.length - 1];
-  var dd = parseInt(last.slice(0,2), 10), mm = parseInt(last.slice(2,4), 10), yyyy = parseInt(last.slice(4,8), 10);
-  if (mm < 1 || mm > 12 || dd < 1 || dd > 31 || yyyy < 2000 || yyyy > 2100) return null;
-  return yyyy + '-' + String(mm).padStart(2,'0') + '-' + String(dd).padStart(2,'0');
-}
-
-// ---------- parser único do relatório bruto do SISCONT (Conta x Centro de Custo) ----------
-// Formato em blocos de 4 linhas por combinação Conta+Centro, com colunas
-// Conta | Centro Custos | Despesa | Na Data | No Exercício | Saldo | Na Data | No Exercício.
-// Todas as métricas usam exclusivamente Na Data. No Exercício não representa
-// necessariamente a posição histórica selecionada. Retratos antigos devem ser reimportados.
-var METRICAS_DETALHE = ['Orc_Desbloq','Empenhado','Liquidado','Pago'];
-var LINHA_BLOCO_DETALHE = [
-  { metrica:'Orc_Desbloq', lado:'saldo',   coluna:'na_data' },
-  { metrica:'Empenhado',   lado:'despesa', coluna:'na_data' },
-  { metrica:'Liquidado',   lado:'despesa', coluna:'na_data' },
-  { metrica:'Pago',        lado:'despesa', coluna:'na_data' }
-];
-
-function isRelatorioBrutoSiscont(data){
-  for (var i=0;i<Math.min(data.length,4);i++){
-    var row = data[i] || [];
-    var texto = stripAccents(row.map(function(x){ return (x===null||x===undefined)?'':String(x); }).join('|'));
-    if (texto.indexOf('centro custos')!==-1 && texto.indexOf('despesa')!==-1 && texto.indexOf('saldo')!==-1) return true;
-  }
-  return false;
-}
-
-// ---------- mapeamento de centro de custo: código bruto do SISCONT -> nome padronizado ----------
-// Preserva a numeração sequencial e a nomenclatura da metodologia anterior
-// (ex.: "1.01.01" do SISCONT -> "02 - ATIVIDADES CEF"), pra bater com as
-// categorias já cadastradas e manter a ordem de exibição de sempre.
-// Válido para o ano de 2027; a reparametrização anual é responsabilidade do master.
-var MAPEAMENTO_CENTROS = {
-  '1.07': { seq: 1, nomeFinal: 'REALIZAÇÃO DAS PLENÁRIAS CAU/PR' },
-  '1.01.01': { seq: 2, nomeFinal: 'ATIVIDADES CEF' },
-  '1.02.01': { seq: 3, nomeFinal: 'ATIVIDADES - CED' },
-  '1.03.01': { seq: 4, nomeFinal: 'ATIVIDADES CEP' },
-  '1.05.01': { seq: 5, nomeFinal: 'ATIVIDADES COA' },
-  '1.04.01': { seq: 6, nomeFinal: 'ATIVIDADES CPF' },
-  '3.01': { seq: 7, nomeFinal: 'COLEGIADOS DAS ENTIDADES ESTADUAIS DE ARQUITETOS E URBANISTAS (CEAU-CAU/PR)' },
-  '2.02': { seq: 8, nomeFinal: 'COMISSÃO DE POLÍTICAS URBANAS E AMBIENTAL DO CAU/PR (CPUA/PR)' },
-  '3.02': { seq: 9, nomeFinal: 'CONSELHO DIRETOR CAU/PR' },
-  '4.01.05.01': { seq: 10, nomeFinal: 'ATIVIDADES DA PRESIDÊNCIA' },
-  '4.02.07.01': { seq: 11, nomeFinal: 'ATIVIDADES GERÊNCIA GERAL' },
-  '4.02.05.1.01': { seq: 12, nomeFinal: 'ATIVIDADES GERÊNCIA DE FISCALIZAÇÃO (SEDE)' },
-  '4.02.05.1.02': { seq: 14, nomeFinal: 'ATIVIDADES GERÊNCIA DE FISCALIZAÇÃO - CASCAVEL' },
-  '4.02.05.1.03': { seq: 15, nomeFinal: 'ATIVIDADES GERÊNCIA DE FISCALIZAÇÃO - LONDRINA' },
-  '4.02.05.1.04': { seq: 16, nomeFinal: 'ATIVIDADES GERÊNCIA DE FISCALIZAÇÃO - MARINGÁ' },
-  '4.02.05.1.05': { seq: 17, nomeFinal: 'ATIVIDADES GERÊNCIA DE FISCALIZAÇÃO - PATO BRANCO' },
-  '4.02.05.1.07': { seq: 18, nomeFinal: 'ATIVIDADES GERÊNCIA DE FISCALIZAÇÃO - CSC DA FISCALIZAÇÃO' },
-  '4.02.06.1.01': { seq: 19, nomeFinal: 'ATIVIDADES GERÊNCIA DE ATENDIMENTO (SEDE)' },
-  '4.02.06.1.03': { seq: 22, nomeFinal: 'ATIVIDADES GERÊNCIA DE ATENDIMENTO - LONDRINA' },
-  '4.02.06.1.07': { seq: 25, nomeFinal: 'ATIVIDADES GERÊNCIA DE ATENDIMENTO - CSC DO ATENDIMENTO' },
-  '4.02.03.01.01': { seq: 26, nomeFinal: 'ATIVIDADES GERÊNCIA ADMINISTRATIVA (SEDE)' },
-  '4.02.03.01.02': { seq: 28, nomeFinal: 'ATIVIDADES GERÊNCIA ADMINISTRATIVA - CASCAVEL' },
-  '4.02.03.01.03': { seq: 29, nomeFinal: 'ATIVIDADES GERÊNCIA ADMINISTRATIVA - LONDRINA' },
-  '4.02.03.01.04': { seq: 30, nomeFinal: 'ATIVIDADES GERÊNCIA ADMINISTRATIVA - MARINGÁ' },
-  '4.02.03.01.05': { seq: 31, nomeFinal: 'ATIVIDADES GERÊNCIA ADMINISTRATIVA - PATO BRANCO' },
-  '4.02.03.01.07': { seq: 32, nomeFinal: 'ATIVIDADES GERÊNCIA ADMINISTRATIVA - CAPACITAÇÃO E TREINAMENTOS' },
-  '4.01.04.01.01': { seq: 33, nomeFinal: 'ATIVIDADES ASSESSORIA DE COMUNICAÇÃO' },
-  '4.02.04.01.01': { seq: 34, nomeFinal: 'ATIVIDADES GERÊNCIA FINANCEIRA' },
-  '4.02.04.01.02': { seq: 35, nomeFinal: 'FUNDO DE APOIO - CAU BÁSICO' },
-  '4.01.02.01': { seq: 36, nomeFinal: 'ASSESSORIA JURÍDICA' },
-  '4.02.04.01.03': { seq: 37, nomeFinal: 'RESERVA DE CONTINGÊNCIA' },
-  '4.01.05.02.18': { seq: 38, nomeFinal: 'ASSISTÊNCIA TÉCNICA EM HABITAÇÃO DE INTERESSE SOCIAL (ATHIS)' },
-  '4.02.03.02.02': { seq: 40, nomeFinal: 'PROJETOS GERÊNCIA ADMINISTRATIVA - PDTI - PLANO DIRETOR DE TECNOLOGIA DA INFORMAÇÃO' },
-  '4.02.03.02.05': { seq: 41, nomeFinal: 'PROJETOS GERÊNCIA ADMINISTRATIVA - REFORMA DA SEDE PRÓPRIA' },
-  '4.01.04.02.03': { seq: 43, nomeFinal: 'PROJETOS ASSESSORIA DE COMUNICAÇÃO - DIA DO ARQUITETO E URBANISTA' },
-  '4.01.05.02.11': { seq: 46, nomeFinal: 'PROJETO ESPECÍFICO/ESTRATÉGICO- CAU EDUCA - CADERNO DE ATIVIDADES DA TURMA DA MÔNICA' },
-  '4.01.04.02.14': { seq: 47, nomeFinal: 'PROJETO FESTIVAL DA ARQUITETURA' },
-  '4.02.03.02.07': { seq: 48, nomeFinal: 'PROJETO AQUISIÇÃO DE IMÓVEIS NAS REGIONAIS DO CAU/PR' },
-  '4.01.05.02.12': { seq: 49, nomeFinal: 'PROJETO CÂMARAS TÉCNICAS' },
-  '4.01.04.02.01': { seq: 50, nomeFinal: 'PROJETOS ASSESSORIA DE COMUNICAÇÃO - PATROCINIOS' },
-  '4.02.07.02.03': { seq: 51, nomeFinal: 'PROJETO ESTRATÉGICO TEIA DE SOLUÇÕES EM ARQUITETURA E URBANISMO P/ DESENVOLV. SUSTENTÁVEL DO PR' },
-  '4.01.05.02.14': { seq: 53, nomeFinal: 'PROJETO ESTRATÉGICO AÇÕES PRIORITÁRIAS DO CEAU - PR (PRODUZIR VIDEOCATS)' },
-  '4.02.07.02.02': { seq: 55, nomeFinal: 'PROJETO COMISSÃO TEMPORÁRIA DE REVISÃO DO MÉTODOS DE COMUNICAÇÃO' },
-  '2.13': { seq: 56, nomeFinal: 'PROJETO CPUA - COMISSÃO TEMPORÁRIA PARA PROMOÇÃO DOS CONCURSOS PÚBLICOS' },
-  '2.17': { seq: 57, nomeFinal: 'COMISSÃO TEMPORÁRIA DE ANÁLISE DE PROCESSO ÉTICO' },
-  '2.18': { seq: 58, nomeFinal: 'COMISSÕES TEMPORÁRIAS DE PROCESSOS DE SINDICÂNCIAS NO ÂMBITO DO CAU/PR' },
-  '4.02.07.02.01': { seq: 59, nomeFinal: 'PROJETO ESPECÍFICO/ESTRATÉGICO - LGPD - LEI DE PROTEÇÃO DE DADOS PESSOAIS' },
-  '2.20': { seq: 60, nomeFinal: 'COMISSÃO ESPECIAL DE POLÍTICAS AFIRMATIVAS' },
-  '2.19': { seq: 61, nomeFinal: 'COMISSÃO ESPECIAL DE ASSISTÊNCIA TÉCNICA DE HABITAÇÃO DE INTERESSE SOCIAL (CATHIS)' },
-  '1.08': { seq: 62, nomeFinal: 'COMISSÃO PERMANENTE DE ÉTICA E INTEGRIDADE' },
-  '2.04': { seq: 63, nomeFinal: 'COMISSÃO ELEITORAL TEMPORÁRIA' },
-  '4.01.05.02.15': { seq: 64, nomeFinal: 'CÂMARA TEMÁTICA DE PATRIMÔNIO' },
-  '1.09.02.01': { seq: 65, nomeFinal: 'CÂMARA TEMÁTICA DE EMERGÊNCIAS CLIMÁTICAS E CIDADES RESILIENTES' },
-  '4.01.05.02.16': { seq: 66, nomeFinal: 'CÂMARA TEMÁTICA DE EMPREENDEDORISMO E INOVAÇÃO' },
-  '4.02.05.2.11': { seq: 67, nomeFinal: 'PROJETO ESTRATÉGICO - DESENVOLVER PLATAFORMA DE INTEGRAÇÃO E INTELIGÊNCIA DE DADOS DA FISCALIZAÇÃO' },
-  '4.02.05.2.12': { seq: 68, nomeFinal: 'PROJETO ESTRATÉGICO - IMPLANTAÇÃO DO PROGRAMA CAU/JR NO ÂMBITO DO CAU/PR' },
-  '4.01.05.02.17': { seq: 69, nomeFinal: 'PROJETO ESTRATÉGICO - IMPLANTAÇÃO DO PROGRAMA DE VOTAÇÃO NO ÂMBITO DO CAU/PR' },
-  '4.02.03.02.08': { seq: 70, nomeFinal: 'PROJETOS GERÊNCIA ADMINISTRATIVA - SISTEMA DE POWER BI (BUSINESS INTELIGENCE)' },
-  '4.02.03.02.09': { seq: 71, nomeFinal: 'PROJETOS GERÊNCIA ADMINISTRATIVA - SISTEMA DE CHAT BOT' },
-  '4.02.06.2.05': { seq: 72, nomeFinal: 'PROJETO ESTRATÉGICO - DIAGNÓSTICO E IMPLEMENTAÇÃO DA GESTÃO DOCUMENTAL DO CAU/PR' },
-  '1.02.02.01': { seq: 73, nomeFinal: 'PROJETO ESPECÍFICO/ESTRATÉGICO - AÇÕES PRIORITÁRIAS DA CED' },
-  '1.02.02.06': { seq: 74, nomeFinal: 'PROJETO ESTRATÉGICO - REALIZAR CAMPANHA EDUCACIOAL-PREVENTIVA SOBRE TEMAS À ÉTICA E DISCIPLINA' },
-  '1.09.02.02': { seq: 75, nomeFinal: 'PROJETO ESTRATÉGICO-PUBLIC.MANUAL PARA SOLUÇÕES BASEADAS NA NATUREZA EM CIDADES E COMUNIDADES DO PR' },
-  '1.09.02.03': { seq: 76, nomeFinal: 'PROJETO ESTRATÉGICO-EDITAL P/ OFICINAS DE SOLUÇÕES BASEADAS NA NATUREZA EM CIDADES E COMUNIDADES' },
-  '1.09.02.04': { seq: 77, nomeFinal: 'PROJETO ESTRATÉGICO-EVENTO "POLÍTICAS AFIRMATIVAS NO CAU" E LANÇAMENTO DE PESQUISA JUNTO DAS IES' }
-};
-
-function resolverNomeCentro(centroBruto){
-  var codigo = centroBruto.indexOf(' - ') !== -1 ? centroBruto.split(' - ')[0].trim() : centroBruto.trim();
-  var m = MAPEAMENTO_CENTROS[codigo];
-  if (!m) return { nome: centroBruto, novo: true };
-  var seqPadded = (m.seq < 10 ? '0' : '') + m.seq;
-  return { nome: seqPadded + ' - ' + m.nomeFinal, novo: false };
-}
-
-function parseDetalhadoFromData(data){
-  var centros = {};
-  var totalGeral = {}; METRICAS_DETALHE.forEach(function(m){ totalGeral[m]=0; });
-  var avisos = [];
-  var contaAtual=null, centroAtual=null, valoresAtuais=null, posicao=0;
-
-  function zera(){ var o={}; METRICAS_DETALHE.forEach(function(m){ o[m]=0; }); return o; }
-  function textoLimpo(v){ return (v===null||v===undefined) ? '' : String(v).replace(/\s+/g,' ').trim(); }
-  function fecha(){
-    if (!contaAtual || !centroAtual) return;
-    if (!centros[centroAtual]) centros[centroAtual] = { contas:{}, subtotal:zera() };
-    if (!centros[centroAtual].contas[contaAtual]) centros[centroAtual].contas[contaAtual] = zera();
-    METRICAS_DETALHE.forEach(function(m){
-      centros[centroAtual].contas[contaAtual][m] += valoresAtuais[m];
-      centros[centroAtual].subtotal[m] += valoresAtuais[m];
-      totalGeral[m] += valoresAtuais[m];
-    });
-  }
-
-  for (var i=2;i<data.length;i++){
-    var row = data[i] || [];
-    var conta = textoLimpo(row[0]);
-    var centroBruto = textoLimpo(row[1]);
-    var centro = centroBruto ? resolverNomeCentro(centroBruto).nome : '';
-    var naData1 = row[3], noExercicio1 = row[4];
-    var naData2 = row[6], noExercicio2 = row[7];
-
-    if (conta && centro){
-      fecha();
-      contaAtual = conta; centroAtual = centro; valoresAtuais = zera(); posicao = 0;
-      if (centroBruto && resolverNomeCentro(centroBruto).novo && avisos.indexOf('Centro de custo não mapeado: "'+centroBruto+'" — usando o nome bruto do SISCONT.') === -1){
-        avisos.push('Centro de custo não mapeado: "'+centroBruto+'" — usando o nome bruto do SISCONT.');
-      }
-    }
-    if (!contaAtual) continue;
-
-    var esperado = LINHA_BLOCO_DETALHE[posicao];
-    if (esperado){
-      var naData = esperado.lado==='saldo' ? naData2 : naData1;
-      var noExercicio = esperado.lado==='saldo' ? noExercicio2 : noExercicio1;
-      // Sem fallback para No Exercício, mesmo se Na Data estiver zerado.
-      var valor = naData;
-      if (valor === null || valor === undefined || valor === '') throw new Error('Na Data ausente na linha '+(i+1));
-      if (typeof valor === 'string') {
-        valor = valor.trim().replace(/R\$\s*/g,'').replace(/\s/g,'');
-        if (valor.includes(',')) valor = valor.replace(/\./g,'').replace(',','.');
-      }
-      var numero = Number(valor);
-      if (!Number.isFinite(numero)) throw new Error('Na Data inválido na linha '+(i+1));
-      valoresAtuais[esperado.metrica] = numero;
-    }
-    posicao++;
-  }
-  fecha();
-
-  if (!Object.keys(centros).length) throw new Error('Nenhum centro de custo encontrado no arquivo.');
-  return { centros: centros, totalGeral: totalGeral, avisos: avisos };
-}
-
-function parseWorkbookDetalhado(file, cb){
-  var reader = new FileReader();
-  reader.onload = function(e){
-    try {
-      var wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
-      var ws = wb.Sheets[wb.SheetNames[0]];
-      var data = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-      if (!data.length) throw new Error('Planilha vazia.');
-      if (!isRelatorioBrutoSiscont(data)){
-        throw new Error('Esse arquivo não parece ser o relatório bruto de Disponibilidade Orçamentária do SISCONT (Conta x Centro de Custo). Confira se exportou o relatório certo.');
-      }
-      cb(null, parseDetalhadoFromData(data));
-    } catch(err){ cb(err); }
-  };
-  reader.onerror = function(){ cb(new Error('Falha ao ler o arquivo.')); };
-  reader.readAsArrayBuffer(file);
-}
-
-if (fileInput) fileInput.addEventListener('change', function(){
-  var files = Array.prototype.slice.call(fileInput.files || []);
-  if (!files.length){ saveBtn.disabled = true; parseStatus.textContent=''; return; }
-  var preview = files.map(function(f){
-    var d = extractDateFromFilename(f.name);
-    return (d ? fmtDate(d) : '⚠ sem data reconhecível') + ' — ' + f.name;
-  });
-  parseStatus.innerHTML = files.length + ' arquivo(s) selecionado(s):<br>' + preview.join('<br>');
-  saveBtn.disabled = false;
-});
-
-if (saveBtn) saveBtn.addEventListener('click', function(){
-  var files = Array.prototype.slice.call(fileInput.files || []);
-  if (!files.length) return;
-  saveBtn.disabled = true; saveBtn.textContent = 'Processando...';
-  var results = [];
-  var chain = Promise.resolve();
-  files.forEach(function(file){
-    chain = chain.then(function(){
-      var date = extractDateFromFilename(file.name);
-      if (!date){ results.push(file.name + ': não encontrei uma data de 8 dígitos (ddmmaaaa) no nome do arquivo — pulado.'); return; }
-      return new Promise(function(resolve){
-        parseWorkbookDetalhado(file, function(err, det){
-          if (err){ results.push(file.name + ': erro ao ler — ' + err.message); resolve(); return; }
-          if (det.avisos && det.avisos.length){
-            console.warn('Avisos do parser SISCONT (' + file.name + '):', det.avisos);
-          }
-          saveSnapshot(date, det.centros, det.totalGeral).then(function(){
-            var changed = false;
-            Object.keys(det.centros).forEach(function(centro){
-              if (!catState.map[centro]){ catState.map[centro] = suggestCategory(centro); changed = true; }
-            });
-            return changed ? saveCategoriasDoc(catState) : Promise.resolve();
-          }).then(function(){
-            var qtd = Object.keys(det.centros).length;
-            results.push(file.name + ': salvo como retrato de ' + fmtDate(date) + ' (' + qtd + ' centros de custo)' + (det.avisos.length ? ' — ' + det.avisos.length + ' aviso(s), ver console.' : '.'));
-            resolve();
-          }).catch(function(err){
-            results.push(file.name + ': erro ao salvar — ' + err.message);
-            resolve();
-          });
-        });
-      });
-    });
-  });
-  chain.then(function(){
-    parseStatus.innerHTML = results.join('<br>');
-    fileInput.value = ''; saveBtn.textContent = 'Salvar retrato(s)'; saveBtn.disabled = true;
-    initDataAndViews();
-  });
-});
-
-function renderSnapshotChips(dates){
-  if (!chipsWrap) return;
-  if (!dates.length){ chipsWrap.innerHTML = '<span class="muted">Nenhum retrato salvo ainda.</span>'; return; }
-  chipsWrap.innerHTML = '';
-  dates.forEach(function(d){
-    var chip = document.createElement('span'); chip.className='chip'; chip.innerHTML = '<span>'+fmtDate(d)+'</span>';
-    var del = document.createElement('button');
-    del.innerHTML = '&times;';
-    del.title = 'Excluir este retrato';
-    del.addEventListener('click', function(){
-      var ok = window.confirm('Excluir o retrato de ' + fmtDate(d) + '? Essa ação não pode ser desfeita.');
-      if (!ok) return;
-      del.disabled = true;
-      deleteSnapshot(d).then(function(){
-        initDataAndViews();
-      }).catch(function(err){
-        alert('Não foi possível excluir: ' + err.message);
-        del.disabled = false;
-      });
-    });
-    chip.appendChild(del);
-    chipsWrap.appendChild(chip);
-  });
-}
-var availableDates = [];
-var snapshotsByDate = {};
-var dateSlider = document.getElementById('dateSlider');
-var dateSliderLabel = document.getElementById('dateSliderLabel');
-
-function setupDateSlider(dates, snaps){
-  availableDates = dates;
-  snapshotsByDate = {};
-  snaps.forEach(function(s, i){ snapshotsByDate[dates[i]] = s; });
-  if (!dates.length){
-    dateSlider.min = 0; dateSlider.max = 0; dateSlider.value = 0; dateSlider.disabled = true;
-    dateSliderLabel.textContent = '—';
-    return;
-  }
-  dateSlider.disabled = false;
-  dateSlider.min = 0; dateSlider.max = dates.length - 1; dateSlider.value = dates.length - 1;
-  dateSliderLabel.textContent = fmtDate(dates[dates.length - 1]);
-}
-dateSlider.addEventListener('input', function(){
-  var idx = parseInt(dateSlider.value, 10);
-  var date = availableDates[idx];
-  if (!date) return;
-  dateSliderLabel.textContent = fmtDate(date);
-  lastCurrentSnap = snapshotsByDate[date];
-  renderCurrent(lastCurrentSnap);
-  renderCategorySummary(lastCurrentSnap);
-});
-
-// ---------- backup ----------
-var exportBtn = document.getElementById('exportBtn');
-if (exportBtn) exportBtn.addEventListener('click', function(){
-  listSnapshotDates().then(function(dates){
-    Promise.all(dates.map(loadSnapshot)).then(function(snaps){
-      var backup = { exportedAt: new Date().toISOString(), snapshots: snaps, categorias: catState.map, category_list: catState.list };
-      var blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json;charset=utf-8;'});
-      var url = URL.createObjectURL(blob); var a = document.createElement('a');
-      a.href=url; a.download='backup_historico_orcamentario_'+todayISO+'.json';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    });
-  });
-});
-
-// ---------- detalhe por conta contábil (aberto ao clicar num centro de custo) ----------
-var viewDetalheCentro = document.getElementById('view-detalheCentro');
-var detalheVoltarBtn = document.getElementById('detalheVoltarBtn');
-var detalheCentroTitulo = document.getElementById('detalheCentroTitulo');
-var detalheCentroData = document.getElementById('detalheCentroData');
-var detalheCentroCard = document.getElementById('detalheCentroCard');
-var viewAntesDoDetalhe = 'inicio';
-
-function openDetalheCentro(centro, date){
-  var navAtivo = document.querySelector('.nav-item.active');
-  viewAntesDoDetalhe = navAtivo ? navAtivo.dataset.view : 'inicio';
-  document.querySelectorAll('.view').forEach(function(v){ v.style.display = 'none'; });
-  viewDetalheCentro.style.display = 'block';
-  detalheCentroTitulo.textContent = centro;
-  detalheCentroData.textContent = 'Referente a ' + fmtDate(date);
-  detalheCentroCard.innerHTML = '<p class="muted">Carregando...</p>';
-  loadSnapshot(date).then(function(det){
-    if (!det || !det.centros || !det.centros[centro]){
-      detalheCentroCard.innerHTML = '<p class="muted">Sem detalhamento por conta contábil para essa data. Suba o relatório bruto do SISCONT na tela "Retratos (upload)".</p>';
-      return;
-    }
-    renderDetalheCentro(det.centros[centro]);
-  }).catch(function(err){
-    detalheCentroCard.innerHTML = '<p class="muted">Erro ao carregar: ' + err.message + '</p>';
-  });
-}
-
-if (detalheVoltarBtn) detalheVoltarBtn.addEventListener('click', function(){
-  viewDetalheCentro.style.display = 'none';
-  document.getElementById('view-' + viewAntesDoDetalhe).style.display = 'block';
-});
-
-function renderDetalheCentro(bloco){
-  var contas = Object.keys(bloco.contas).sort(function(a,b){ return nomeExibicaoConta(a).localeCompare(nomeExibicaoConta(b)); });
-  var orcadoTotal = bloco.subtotal.Orc_Desbloq + bloco.subtotal.Empenhado;
-  var html = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px; margin-bottom:20px;">';
-  html += '<div class="metric"><div class="label">Orçado</div><div class="value">R$ '+fmt(orcadoTotal)+'</div></div>';
-  html += '<div class="metric"><div class="label">Empenhado</div><div class="value">R$ '+fmt(bloco.subtotal.Empenhado)+'</div></div>';
-  html += '<div class="metric"><div class="label">Liquidado</div><div class="value">R$ '+fmt(bloco.subtotal.Liquidado)+'</div></div>';
-  html += '<div class="metric orange"><div class="label">Pago</div><div class="value">R$ '+fmt(bloco.subtotal.Pago)+'</div></div></div>';
-
-  contas.forEach(function(conta){
-    var v = bloco.contas[conta];
-    var orcado = v.Orc_Desbloq + v.Empenhado;
-    var saldoOrc = v.Orc_Desbloq;
-    var saldoLiq = v.Empenhado - v.Liquidado;
-    var saldoPagar = v.Liquidado - v.Pago;
-    var pctEmp = orcado ? (v.Empenhado / orcado * 100) : 0;
-    var pctLiq = orcado ? (v.Liquidado / orcado * 100) : 0;
-    var pctPag = orcado ? (v.Pago / orcado * 100) : 0;
-    var contaCodificada = encodeURIComponent(conta);
-    html += '<div class="conta-row">';
-    html += '<div class="conta-row-head"><span class="conta-nome" title="'+conta.replace(/"/g,'&quot;')+'">'+nomeExibicaoConta(conta)+'</span>';
-    if (currentRole === 'master'){ html += '<button class="conta-edit-btn" data-conta="'+contaCodificada+'">✎ apelido</button>'; }
-    html += '</div>';
-    html += '<div class="cc-orcado">Orçado: <strong>R$ '+fmt(orcado)+'</strong></div>';
-    html += '<div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(v.Empenhado)+' · '+pctEmp.toFixed(1)+'%</span></div>';
-    html += '<div class="pbar"><div class="pbar-fill empenho'+(pctEmp>100?' over':'')+'" style="width:'+Math.min(pctEmp,100)+'%;"></div></div>';
-    html += '<div class="pbar-row"><span>Liquidado</span><span>R$ '+fmt(v.Liquidado)+' · '+pctLiq.toFixed(1)+'%</span></div>';
-    html += '<div class="pbar"><div class="pbar-fill liquidado'+(pctLiq>100?' over':'')+'" style="width:'+Math.min(pctLiq,100)+'%;"></div></div>';
-    html += '<div class="pbar-row"><span>Pago</span><span>R$ '+fmt(v.Pago)+' · '+pctPag.toFixed(1)+'%</span></div>';
-    html += '<div class="pbar"><div class="pbar-fill pago'+(pctPag>100?' over':'')+'" style="width:'+Math.min(pctPag,100)+'%;"></div></div>';
-    html += '<div class="cc-saldos">';
-    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo do orçamento</div><div class="cc-saldo-value">R$ '+fmt(saldoOrc)+'</div></div>';
-    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a liquidar</div><div class="cc-saldo-value">R$ '+fmt(saldoLiq)+'</div></div>';
-    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a pagar</div><div class="cc-saldo-value">R$ '+fmt(saldoPagar)+'</div></div>';
-    html += '</div></div>';
-  });
-
-  detalheCentroCard.innerHTML = html;
-
-  if (currentRole === 'master'){
-    detalheCentroCard.querySelectorAll('.conta-edit-btn').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        var conta = decodeURIComponent(btn.dataset.conta);
-        var atual = (apelidosState.map && apelidosState.map[conta]) || '';
-        var novo = window.prompt('Apelido para exibir no lugar de:\n' + conta, atual);
-        if (novo === null) return; // cancelou
-        if (!apelidosState.map) apelidosState.map = {};
-        if (novo.trim()) apelidosState.map[conta] = novo.trim();
-        else delete apelidosState.map[conta];
-        saveApelidosDoc(apelidosState).then(function(){ renderDetalheCentro(bloco); });
-      });
-    });
-  }
-}
-
-// ---------- minha conta ----------
-document.getElementById('changePasswordBtn').addEventListener('click', function(){
-  var msg = document.getElementById('passwordMsg');
-  var v = document.getElementById('newPasswordInput').value;
-  if (!v || v.length < 6){ msg.textContent = 'A senha precisa ter ao menos 6 caracteres.'; return; }
-  updatePassword(currentUser, v).then(function(){
-    msg.textContent = 'Senha alterada com sucesso.';
-    document.getElementById('newPasswordInput').value = '';
-  }).catch(function(err){
-    msg.textContent = 'Não foi possível trocar agora — faça login novamente e tente de novo (' + err.code + ').';
-  });
-});
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

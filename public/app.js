@@ -122,8 +122,8 @@ function listSnapshotDates(){
 function loadSnapshot(date){
   return getDoc(doc(db, 'snapshotsDetalhe', date)).then(function(d){ return d.exists() ? d.data() : null; });
 }
-function saveSnapshot(date, centros, totalGeral, origem){
-  return setDoc(doc(db, 'snapshotsDetalhe', date), { date: date, centros: centros, totalGeral: totalGeral, savedAt: new Date().toISOString(), ownerId: currentUser.uid, origem: origem || null });
+function saveSnapshot(date, centros, totalGeral){
+  return setDoc(doc(db, 'snapshotsDetalhe', date), { date: date, centros: centros, totalGeral: totalGeral, savedAt: new Date().toISOString(), ownerId: currentUser.uid, origem: { coluna: 'na_data', parserVersion: 3 } });
 }
 function deleteSnapshot(date){
   return deleteDoc(doc(db, 'snapshotsDetalhe', date));
@@ -393,7 +393,7 @@ function renderCurrent(snap){
   rows.forEach(function(r){ tot.orcado+=r.orcado; tot.empenho+=r.empenho; tot.liquidacao+=r.liquidacao; tot.pagamento+=r.pagamento; tot.saldoOrc+=r.saldoOrc; tot.saldoLiq+=r.saldoLiq; tot.saldoPagar+=r.saldoPagar; });
   var pct = tot.orcado ? (tot.pagamento/tot.orcado*100) : 0;
   var html = '<p class="muted" style="margin:0 0 12px;">Referente a ' + fmtDate(snap.date) + ' · ' + rows.length + ' de ' + todasRows.length + ' centros exibidos</p>';
-  if (!snap.origem || snap.origem.validacao !== 'revisado') html += '<p class="validation-warning">Retrato antigo sem validação da fonte. Os valores podem não representar o acumulado até esta data.</p>';
+  if (!snap.origem || snap.origem.coluna !== 'na_data' || snap.origem.parserVersion !== 3) html += '<p class="import-warning">Este retrato foi salvo com uma versão anterior. Reimporte o relatório para aplicar a leitura exclusiva de Na Data.</p>';
   html += '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px; margin-bottom:18px;">';
   html += '<div class="metric"><div class="label">Orçado total</div><div class="value">R$ '+fmt(tot.orcado)+'</div></div>';
   html += '<div class="metric"><div class="label">Pago até aqui</div><div class="value">R$ '+fmt(tot.pagamento)+'</div></div>';
@@ -493,22 +493,20 @@ function extractDateFromFilename(name){
   var last = matches[matches.length - 1];
   var dd = parseInt(last.slice(0,2), 10), mm = parseInt(last.slice(2,4), 10), yyyy = parseInt(last.slice(4,8), 10);
   if (mm < 1 || mm > 12 || dd < 1 || dd > 31 || yyyy < 2000 || yyyy > 2100) return null;
-  var check = new Date(Date.UTC(yyyy, mm - 1, dd));
-  if (check.getUTCFullYear() !== yyyy || check.getUTCMonth() !== mm - 1 || check.getUTCDate() !== dd) return null;
-  if (matches.some(function(m){ return m !== last; })) return null;
   return yyyy + '-' + String(mm).padStart(2,'0') + '-' + String(dd).padStart(2,'0');
 }
 
 // ---------- parser único do relatório bruto do SISCONT (Conta x Centro de Custo) ----------
 // Formato em blocos de 4 linhas por combinação Conta+Centro, com colunas
 // Conta | Centro Custos | Despesa | Na Data | No Exercício | Saldo | Na Data | No Exercício.
-// As colunas podem divergir. A importação exige seleção explícita da coluna e revisão dos totais antes da gravação.
+// Todas as métricas usam exclusivamente Na Data. No Exercício não representa
+// necessariamente a posição histórica selecionada. Retratos antigos devem ser reimportados.
 var METRICAS_DETALHE = ['Orc_Desbloq','Empenhado','Liquidado','Pago'];
 var LINHA_BLOCO_DETALHE = [
-  { metrica:'Orc_Desbloq', lado:'saldo',   coluna:'no_exercicio' },
+  { metrica:'Orc_Desbloq', lado:'saldo',   coluna:'na_data' },
   { metrica:'Empenhado',   lado:'despesa', coluna:'na_data' },
-  { metrica:'Liquidado',   lado:'despesa', coluna:'no_exercicio' },
-  { metrica:'Pago',        lado:'despesa', coluna:'no_exercicio' }
+  { metrica:'Liquidado',   lado:'despesa', coluna:'na_data' },
+  { metrica:'Pago',        lado:'despesa', coluna:'na_data' }
 ];
 
 function isRelatorioBrutoSiscont(data){
@@ -611,7 +609,6 @@ function parseDetalhadoFromData(data){
   function textoLimpo(v){ return (v===null||v===undefined) ? '' : String(v).replace(/\s+/g,' ').trim(); }
   function fecha(){
     if (!contaAtual || !centroAtual) return;
-    if (posicao !== 4) throw new Error("Bloco incompleto para "+contaAtual+" / "+centroAtual);
     if (!centros[centroAtual]) centros[centroAtual] = { contas:{}, subtotal:zera() };
     if (!centros[centroAtual].contas[contaAtual]) centros[centroAtual].contas[contaAtual] = zera();
     METRICAS_DETALHE.forEach(function(m){
@@ -640,19 +637,18 @@ function parseDetalhadoFromData(data){
 
     var esperado = LINHA_BLOCO_DETALHE[posicao];
     if (esperado){
-      var label = stripAccents(textoLimpo(row[esperado.lado === "saldo" ? 5 : 2])).toUpperCase();
-      var required = {Orc_Desbloq:"ORCAMENTARIO DESBLOQ.", Empenhado:"EMPENHADO", Liquidado:"LIQUIDADO", Pago:"PAGO"}[esperado.metrica];
-      if (label !== required) throw new Error("Linha "+(i+1)+": estrutura inesperada ("+label+"). Arquivo não importado.");
       var naData = esperado.lado==='saldo' ? naData2 : naData1;
       var noExercicio = esperado.lado==='saldo' ? noExercicio2 : noExercicio1;
-      if (esperado.metrica==='Empenhado' && (noExercicio||0)!==0){
-        avisos.push('Linha '+(i+1)+': EMPENHADO com "No Exercício" != 0 — SISCONT pode ter mudado o layout.');
-      } else if (esperado.metrica!=='Empenhado' && (naData||0)!==(noExercicio||0)){
-        avisos.push('Linha '+(i+1)+': '+esperado.metrica+' com "Na Data" != "No Exercício" — revisar coluna usada.');
+      // Sem fallback para No Exercício, mesmo se Na Data estiver zerado.
+      var valor = naData;
+      if (valor === null || valor === undefined || valor === '') throw new Error('Na Data ausente na linha '+(i+1));
+      if (typeof valor === 'string') {
+        valor = valor.trim().replace(/R\$\s*/g,'').replace(/\s/g,'');
+        if (valor.includes(',')) valor = valor.replace(/\./g,'').replace(',','.');
       }
-      var coluna = document.getElementById("importColumn").value;
-      var valor = coluna==='na_data' ? naData : noExercicio;
-      valoresAtuais[esperado.metrica] = numeroSiscont(valor, i+1);
+      var numero = Number(valor);
+      if (!Number.isFinite(numero)) throw new Error('Na Data inválido na linha '+(i+1));
+      valoresAtuais[esperado.metrica] = numero;
     }
     posicao++;
   }
@@ -680,80 +676,56 @@ function parseWorkbookDetalhado(file, cb){
   reader.readAsArrayBuffer(file);
 }
 
-function numeroSiscont(value, line){
-  if (value === null || value === undefined || value === '') throw new Error('Valor ausente na linha '+line);
-  if (typeof value === 'string') {
-    value = value.trim().replace(/R\$\s*/g,'').replace(/\s/g,'');
-    if (value.indexOf(',') >= 0) value = value.replace(/\./g,'').replace(',','.');
-  }
-  var n = Number(value);
-  if (!Number.isFinite(n)) throw new Error('Valor inválido na linha '+line);
-  return n;
-}
-function escapeImport(text){ return String(text).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
-var pendingImports = [], importGeneration = 0, importing = false;
-var reviewImport = document.getElementById('reviewImport');
-var replaceExisting = document.getElementById('replaceExisting');
-var importColumn = document.getElementById('importColumn');
-function updateImportButton(){ saveBtn.disabled = importing || !reviewImport.checked || !pendingImports.length || pendingImports.some(function(x){return x.error || (x.existing && !replaceExisting.checked);}); }
-async function prepareImports(){
-  var generation = ++importGeneration;
-  pendingImports = []; reviewImport.checked = false; saveBtn.disabled = true;
-  var files = Array.from(fileInput.files || []), dates = new Set();
-  parseStatus.textContent = files.length ? 'Analisando arquivos e conferindo retratos existentes...' : '';
-  var prepared = [];
-  for (var file of files){
-    var item = {file:file, date:extractDateFromFilename(file.name)};
-    try {
-      if (!item.date) throw new Error('Data inválida ou intervalo com datas diferentes no nome.');
-      if (dates.has(item.date)) throw new Error('Data repetida neste lote.');
-      dates.add(item.date);
-      item.detail = await new Promise(function(resolve,reject){parseWorkbookDetalhado(file,function(err,det){err ? reject(err) : resolve(det);});});
-      item.existing = await loadSnapshot(item.date);
-    } catch(err){ item.error = err.message; }
-    if (generation !== importGeneration) return;
-    prepared.push(item);
-  }
-  pendingImports = prepared;
-  parseStatus.innerHTML = prepared.map(function(item){
-    var prefix = escapeImport(item.file.name)+' — '+(item.date ? fmtDate(item.date) : 'sem data');
-    if(item.error) return '<div class="import-preview">'+prefix+' — BLOQUEADO: '+escapeImport(item.error)+'</div>';
-    var t = item.detail.totalGeral;
-    return '<div class="import-preview">'+prefix+'<br>Empenhado: R$ '+fmt(t.Empenhado)+' · Liquidado: R$ '+fmt(t.Liquidado)+' · Pago: R$ '+fmt(t.Pago)+'<br>'+Object.keys(item.detail.centros).length+' centros'+(item.existing ? ' · já existe nesta data' : '')+(item.detail.avisos.length ? '<br>'+item.detail.avisos.length+' inconsistência(s): '+item.detail.avisos.slice(0,3).map(escapeImport).join('; ') : '')+'</div>';
-  }).join('');
-  updateImportButton();
-}
-fileInput.addEventListener('change',prepareImports);
-importColumn.addEventListener('change',prepareImports);
-reviewImport.addEventListener('change',updateImportButton);
-replaceExisting.addEventListener('change',updateImportButton);
-function downloadPreviousSnapshots(snaps){
-  var blob = new Blob([JSON.stringify({exportedAt:new Date().toISOString(),snapshots:snaps,categorias:catState.map,category_list:catState.list},null,2)],{type:'application/json'});
-  var url = URL.createObjectURL(blob), a = document.createElement('a');
-  a.href=url; a.download='backup_antes_importacao_'+Date.now()+'.json'; a.click();
-  setTimeout(function(){URL.revokeObjectURL(url);},10000);
-}
-saveBtn.addEventListener('click',async function(){
-  updateImportButton(); if(saveBtn.disabled) return;
-  importing=true; updateImportButton(); fileInput.disabled=true; importColumn.disabled=true;
-  var results=[];
-  try {
-    // Reconfere a base imediatamente antes da gravação.
-    var old=[];
-    for(var item of pendingImports){
-      item.existing=await loadSnapshot(item.date);
-      if(item.existing && !replaceExisting.checked) throw new Error('Já existe retrato em '+fmtDate(item.date)+'. Habilite a substituição após revisar.');
-      if(item.existing) old.push(item.existing);
-    }
-    if(old.length) downloadPreviousSnapshots(old);
-    for(var item of pendingImports){
-      await saveSnapshot(item.date,item.detail.centros,item.detail.totalGeral,{arquivo:item.file.name,coluna:importColumn.value,validacao:'revisado',avisos:item.detail.avisos,parserVersion:2});
-      results.push('Salvo: '+fmtDate(item.date));
-    }
-    pendingImports=[]; fileInput.value=''; reviewImport.checked=false;
+if (fileInput) fileInput.addEventListener('change', function(){
+  var files = Array.prototype.slice.call(fileInput.files || []);
+  if (!files.length){ saveBtn.disabled = true; parseStatus.textContent=''; return; }
+  var preview = files.map(function(f){
+    var d = extractDateFromFilename(f.name);
+    return (d ? fmtDate(d) : '⚠ sem data reconhecível') + ' — ' + f.name;
+  });
+  parseStatus.innerHTML = files.length + ' arquivo(s) selecionado(s):<br>' + preview.join('<br>');
+  saveBtn.disabled = false;
+});
+
+if (saveBtn) saveBtn.addEventListener('click', function(){
+  var files = Array.prototype.slice.call(fileInput.files || []);
+  if (!files.length) return;
+  saveBtn.disabled = true; saveBtn.textContent = 'Processando...';
+  var results = [];
+  var chain = Promise.resolve();
+  files.forEach(function(file){
+    chain = chain.then(function(){
+      var date = extractDateFromFilename(file.name);
+      if (!date){ results.push(file.name + ': não encontrei uma data de 8 dígitos (ddmmaaaa) no nome do arquivo — pulado.'); return; }
+      return new Promise(function(resolve){
+        parseWorkbookDetalhado(file, function(err, det){
+          if (err){ results.push(file.name + ': erro ao ler — ' + err.message); resolve(); return; }
+          if (det.avisos && det.avisos.length){
+            console.warn('Avisos do parser SISCONT (' + file.name + '):', det.avisos);
+          }
+          saveSnapshot(date, det.centros, det.totalGeral).then(function(){
+            var changed = false;
+            Object.keys(det.centros).forEach(function(centro){
+              if (!catState.map[centro]){ catState.map[centro] = suggestCategory(centro); changed = true; }
+            });
+            return changed ? saveCategoriasDoc(catState) : Promise.resolve();
+          }).then(function(){
+            var qtd = Object.keys(det.centros).length;
+            results.push(file.name + ': salvo como retrato de ' + fmtDate(date) + ' (' + qtd + ' centros de custo)' + (det.avisos.length ? ' — ' + det.avisos.length + ' aviso(s), ver console.' : '.'));
+            resolve();
+          }).catch(function(err){
+            results.push(file.name + ': erro ao salvar — ' + err.message);
+            resolve();
+          });
+        });
+      });
+    });
+  });
+  chain.then(function(){
+    parseStatus.innerHTML = results.join('<br>');
+    fileInput.value = ''; saveBtn.textContent = 'Salvar retrato(s)'; saveBtn.disabled = true;
     initDataAndViews();
-  } catch(err){results.push('Interrompido: '+err.message+' Os retratos já salvos permanecem na base.');}
-  finally {importing=false;fileInput.disabled=false;importColumn.disabled=false;parseStatus.textContent=results.join('\n');updateImportButton();}
+  });
 });
 
 function renderSnapshotChips(dates){
@@ -921,5 +893,3 @@ document.getElementById('changePasswordBtn').addEventListener('click', function(
     msg.textContent = 'Não foi possível trocar agora — faça login novamente e tente de novo (' + err.code + ').';
   });
 });
-
-

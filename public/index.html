@@ -66,12 +66,12 @@
           <button class="btn" id="filterClear">Limpar filtros</button>
         </div>
         <div class="card" id="dateSliderCard">
-          <label>Data de referência (YTD)</label>
+          <label>Data de referência do retrato</label>
           <div class="slider-row">
             <input type="range" id="dateSlider" min="0" max="0" value="0" step="1" />
             <span class="slider-date" id="dateSliderLabel">—</span>
           </div>
-          <p class="muted" style="margin:6px 0 0;">Mostrando o acumulado do ano até a data selecionada.</p>
+          <p class="muted" style="margin:6px 0 0;">Mostrando os valores do arquivo importado para a data selecionada. O acumulado depende da fonte.</p>
         </div>
         <div class="card" id="currentCard"><p class="muted">Carregando...</p></div>
         <h2 style="margin-top:28px;">Resumo por categoria</h2>
@@ -109,7 +109,7 @@
             <div><label>Relatório de Disponibilidade Orçamentária bruto do SISCONT (.xlsx/.xls) — pode selecionar vários arquivos de uma vez, a data de cada um é lida do nome do arquivo</label><input type="file" id="fileInput" accept=".xlsx,.xls" multiple /></div>
             <button class="btn primary" id="saveBtn" disabled>Salvar retrato(s)</button>
           </div>
-          <p class="muted" id="parseStatus" style="margin:12px 0 0;"></p>
+          <div class="import-options"><label>Coluna para todas as métricas<select id="importColumn"><option value="na_data">Na Data — validar se representa o acumulado na referência</option><option value="no_exercicio">No Exercício — pode incluir movimentos posteriores</option></select></label><label><input type="checkbox" id="reviewImport" /> Conferi as datas e os totais com uma fonte independente do SISCONT.</label><label><input type="checkbox" id="replaceExisting" /> Substituir retratos existentes (uma cópia anterior será baixada antes de salvar).</label><p class="validation-warning">O Excel customizado apresentou divergência com a visualização do SISCONT. Não use o nome do arquivo como prova de que os valores são históricos.</p></div><p class="muted" id="parseStatus" style="margin:12px 0 0;"></p>
         </div>
         <div class="card">
           <div id="chipsWrap"><span class="muted">Nenhum retrato salvo ainda.</span></div>

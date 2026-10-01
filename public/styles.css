@@ -110,3 +110,9 @@ label { display:block; font-size:11px; color:#928D80; margin-bottom:5px; text-tr
   .nav-item { width:auto; padding:8px 12px; border-radius:6px; }
   .main-content { padding:18px; }
 }
+.import-options { display:grid; gap:12px; margin-top:18px; }
+.import-options label { text-transform:none; display:block; }
+.import-options input[type=checkbox] { width:auto; margin-right:8px; }
+.import-options select { display:block; width:100%; margin-top:6px; }
+.validation-warning { background:#fff3cd; color:#664d03; padding:12px; border-radius:8px; line-height:1.5; }
+.import-preview { overflow-wrap:anywhere; padding:10px 0; border-bottom:1px solid #ddd; }

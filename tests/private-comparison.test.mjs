@@ -28,6 +28,10 @@ test('A comparison snapshot completing after signout cannot enter the dashboard'
  const s=setup();s.signout();s.pending.resolve({content:JSON.stringify(candidate)});await tick();assert.equal(s.context.getSnapshot('2020-01-02'),null);assert.equal(s.root.children.length,0);assert.equal(s.refreshes,0);
 });
 test('A private report completing after signout cannot restore its content',async()=>{
- const s=setup();const loading=s.nodes.find(n=>n.tag==='button'&&n.textContent==='Conciliação do novo relatório').click();s.signout();s.report.resolve({content:'# Private report'});await loading;assert.equal(s.root.children.length,0);assert.equal(s.root.textContent,'');
+ const s=setup();const loading=s.nodes.find(n=>n.tag==='button'&&n.textContent==='Conciliação do novo relatório').click();s.signout();s.report.resolve({content:'# Private report'});await loading;await tick();assert.equal(s.root.children.length,0);assert.equal(s.root.textContent,'');
+});
+test('Reports display comparison tables and emphasis while keeping HTML as literal text',async()=>{
+ const s=setup();const loading=s.nodes.find(n=>n.tag==='button'&&n.textContent==='Conciliação do novo relatório').click();s.report.resolve({content:'# Report\n\n**Exact comparison**\n\n| Source | Amount |\n|---|---:|\n| PDF | R$ 1.234,56 |\n\n<script>alert(1)</script>'});await loading;await tick();
+ assert.equal(s.nodes.filter(n=>n.tag==='table').length,1);assert.equal(s.nodes.filter(n=>n.tag==='th').length,2);assert.equal(s.nodes.filter(n=>n.tag==='td').length,2);assert.ok(s.nodes.some(n=>n.tag==='strong'&&n.textContent==='Exact comparison'));assert.equal(s.nodes.filter(n=>n.tag==='script').length,0);assert.ok(s.root.textContent.includes('<script>alert(1)</script>'));assert.ok(!s.root.textContent.includes('|---'));
 });
 

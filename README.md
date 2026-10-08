@@ -8,9 +8,15 @@ A entrada fica abaixo de Minha conta. `public/lab-bootstrap.js` identifica a con
 
 `lab-src/implanta-core.mjs` valida períodos e URLs, consulta doze fontes públicas com timeout/limite de bytes, preserva JSON/bytes/hash e usa centavos BigInt. `lab-src/laboratory.mjs` oferece exploração, gráficos de populações selecionadas e comparação somente leitura com retratos. Consultas novas ficam na sessão; não há sincronização automática ou escrita nos retratos pelo laboratório.
 
+`lab-src/dashboard.mjs` recria a visão inicial com categorias, datas, sete indicadores, cartões de centros e detalhes por orçamento, conta, mês e origem. `lab-src/reconciliation-core.mjs` cruza códigos contábeis e mapeamentos explícitos, separando a API global por conta da execução por centro. Duplicatas e valores incompletos ficam indisponíveis. Filtros de categoria não rateiam a API global. As diferenças seguem API menos upload. Os CSVs de conferência usam valores em reais e neutralizam fórmulas em textos. Os dados oficiais do painel continuam provenientes dos uploads.
+
+O formatador das telas existentes também inclui o prefixo `R$`, agrupamento por ponto e duas casas decimais; percentuais, códigos e datas conservam suas representações próprias.
+
 ## Verificação
 
 Execute `npm test` com Node moderno. Os testes sintéticos não precisam de rede. O teste adicional de uma resposta oficial requer `IMPLANTA_AUDIT_FIXTURE` apontando para o JSON preservado da auditoria; sem essa variável ele informa skip. As evidências e a documentação privada não são mantidas neste repositório público.
+
+O teste de cruzamento real requer `IMPLANTA_RECONCILIATION_FIXTURE_DIR` com o diretório privado contendo `firebase-audit.json`, as respostas em `implanta-review-evidence/` e o código de mapeamento em `site/public/app.js`. Esse dump é local à auditoria e não deve ser incluído no repositório ou Hosting. Sem a variável, o teste informa skip; os casos sintéticos de nulos, duplicatas, sinais e precisão continuam executados.
 
 Execute `npm run build:lab` para gerar `build/laboratory.mjs` e seu SHA-256. O módulo gerado deve ser publicado administrativamente no documento `implantaLab/module` com campos string `content`, `sha256` e `version`. O build não faz upload. Não copie o módulo ou as evidências para `public`.
 

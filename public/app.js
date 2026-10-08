@@ -48,7 +48,9 @@ const laboratory = createLabController({
   },
   getSnapshotDates: () => availableDates.slice(),
   getSnapshot: (date) => snapshotsByDate[date],
-  centerMap: () => MAPEAMENTO_CENTROS
+  centerMap: () => MAPEAMENTO_CENTROS,
+  getCategories: () => catState,
+  getAccountAlias: (name) => nomeExibicaoConta(name)
 });
 
 // ---------- login ----------
@@ -141,8 +143,15 @@ document.querySelectorAll('.nav-item[data-view]').forEach(function(btn){
 
 // ---------- utilitários ----------
 function stripAccents(s){ return (s||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); }
-function fmt(n){ if (n === null || n === undefined || isNaN(n)) return '—'; return n.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}); }
-function fmtSigned(n){ if (n === null || n === undefined || isNaN(n)) return '—'; var s = fmt(Math.abs(n)); return (n<0?'−':(n>0?'+':'')) + s; }
+function fmt(n){
+  if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
+  var amount = Math.abs(n).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+  return 'R$ ' + (n < 0 && amount !== '0,00' ? '-' : '') + amount;
+}
+function fmtSigned(n){
+  var amount = fmt(n);
+  return n > 0 && amount !== '—' && amount !== 'R$ 0,00' ? amount.replace('R$ ', 'R$ +') : amount;
+}
 function fmtDate(iso){ var p = iso.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
 
 // ---------- Firestore: snapshots (retrato por data, com detalhe por conta contábil) ----------
@@ -275,6 +284,7 @@ function initDataAndViews(isCurrent){
         lastCurrentSnap = dates.length ? snapshotsByDate[dates[dates.length-1]] : null;
         renderCurrent(lastCurrentSnap);
         renderCategorySummary(lastCurrentSnap);
+        laboratory.refresh();
       });
     });
   });
@@ -401,9 +411,9 @@ function renderCurrent(snap){
   if (!snap.origem || snap.origem.coluna !== 'na_data' || snap.origem.parserVersion < 3) html += '<p class="import-warning">Este retrato foi salvo com uma versão anterior. Reimporte o relatório para aplicar a leitura exclusiva de Na Data.</p>';
   if (snap.origem) html += '<p class="source-note">Fonte: '+escHtml(snap.origem.formato || 'Excel')+' · coluna Na Data · '+escHtml(snap.origem.arquivo || 'relatório SISCONT')+'</p>';
   html += '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px; margin-bottom:18px;">';
-  html += '<div class="metric"><div class="label">Orçado total</div><div class="value">R$ '+fmt(tot.orcado)+'</div></div>';
-  html += '<div class="metric"><div class="label">Pago até aqui</div><div class="value">R$ '+fmt(tot.pagamento)+'</div></div>';
-  html += '<div class="metric blue"><div class="label">Saldo de orçamento</div><div class="value">R$ '+fmt(tot.saldoOrc)+'</div></div>';
+  html += '<div class="metric"><div class="label">Orçado total</div><div class="value">'+fmt(tot.orcado)+'</div></div>';
+  html += '<div class="metric"><div class="label">Pago até aqui</div><div class="value">'+fmt(tot.pagamento)+'</div></div>';
+  html += '<div class="metric blue"><div class="label">Saldo de orçamento</div><div class="value">'+fmt(tot.saldoOrc)+'</div></div>';
   html += '<div class="metric orange"><div class="label">% executado</div><div class="value">'+pct.toFixed(2)+'%</div></div></div>';
   if (!rows.length){ html += '<p class="muted">Nenhum centro de custo corresponde ao filtro atual.</p>'; currentCard.innerHTML = html; return; }
 
@@ -418,16 +428,16 @@ function renderCurrent(snap){
   html += '<div class="cc-geral">';
   html += '<div class="cc-name">Visão geral</div>';
   html += '<div class="cc-cat">'+rotuloSelecao+' · '+rows.length+' centro(s) de custo</div>';
-  html += '<div class="cc-orcado">Orçado: <strong>R$ '+fmt(tot.orcado)+'</strong></div>';
+  html += '<div class="cc-orcado">Orçado: <strong>'+fmt(tot.orcado)+'</strong></div>';
   html += '<div class="geral-bars">';
-  html += '<div><div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(tot.empenho)+' · '+gPctEmp.toFixed(1)+'%</span></div><div class="pbar"><div class="pbar-fill empenho" style="width:'+Math.min(gPctEmp,100)+'%;"></div></div></div>';
-  html += '<div><div class="pbar-row"><span>Liquidado</span><span>R$ '+fmt(tot.liquidacao)+' · '+gPctLiq.toFixed(1)+'%</span></div><div class="pbar"><div class="pbar-fill liquidado" style="width:'+Math.min(gPctLiq,100)+'%;"></div></div></div>';
-  html += '<div><div class="pbar-row"><span>Pago</span><span>R$ '+fmt(tot.pagamento)+' · '+gPctPag.toFixed(1)+'%</span></div><div class="pbar"><div class="pbar-fill pago" style="width:'+Math.min(gPctPag,100)+'%;"></div></div></div>';
+  html += '<div><div class="pbar-row"><span>Empenhado</span><span>'+fmt(tot.empenho)+' · '+gPctEmp.toFixed(1)+'%</span></div><div class="pbar"><div class="pbar-fill empenho" style="width:'+Math.min(gPctEmp,100)+'%;"></div></div></div>';
+  html += '<div><div class="pbar-row"><span>Liquidado</span><span>'+fmt(tot.liquidacao)+' · '+gPctLiq.toFixed(1)+'%</span></div><div class="pbar"><div class="pbar-fill liquidado" style="width:'+Math.min(gPctLiq,100)+'%;"></div></div></div>';
+  html += '<div><div class="pbar-row"><span>Pago</span><span>'+fmt(tot.pagamento)+' · '+gPctPag.toFixed(1)+'%</span></div><div class="pbar"><div class="pbar-fill pago" style="width:'+Math.min(gPctPag,100)+'%;"></div></div></div>';
   html += '</div>';
   html += '<div class="cc-saldos">';
-  html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo do orçamento</div><div class="cc-saldo-value">R$ '+fmt(tot.saldoOrc)+'</div></div>';
-  html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a liquidar</div><div class="cc-saldo-value">R$ '+fmt(tot.saldoLiq)+'</div></div>';
-  html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a pagar</div><div class="cc-saldo-value">R$ '+fmt(tot.saldoPagar)+'</div></div>';
+  html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo do orçamento</div><div class="cc-saldo-value">'+fmt(tot.saldoOrc)+'</div></div>';
+  html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a liquidar</div><div class="cc-saldo-value">'+fmt(tot.saldoLiq)+'</div></div>';
+  html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a pagar</div><div class="cc-saldo-value">'+fmt(tot.saldoPagar)+'</div></div>';
   html += '</div></div>';
 
   html += '<div class="cc-grid">';
@@ -439,17 +449,17 @@ function renderCurrent(snap){
     html += '<div class="cc-card"' + (cardColor ? ' style="background:'+cardColor+';"' : '') + '>';
     html += '<div class="cc-name">'+escHtml(r.centro)+'</div>';
     html += '<div class="cc-cat">'+escHtml(catState.map[r.centro]||'sem categoria')+'</div>';
-    html += '<div class="cc-orcado">Orçado: <strong>R$ '+fmt(r.orcado)+'</strong></div>';
-    html += '<div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(r.empenho)+' · '+pctEmp.toFixed(1)+'%</span></div>';
+    html += '<div class="cc-orcado">Orçado: <strong>'+fmt(r.orcado)+'</strong></div>';
+    html += '<div class="pbar-row"><span>Empenhado</span><span>'+fmt(r.empenho)+' · '+pctEmp.toFixed(1)+'%</span></div>';
     html += '<div class="pbar"><div class="pbar-fill empenho'+(pctEmp>100?' over':'')+'" style="width:'+Math.min(pctEmp,100)+'%;"></div></div>';
-    html += '<div class="pbar-row"><span>Liquidado</span><span>R$ '+fmt(r.liquidacao)+' · '+pctLiq.toFixed(1)+'%</span></div>';
+    html += '<div class="pbar-row"><span>Liquidado</span><span>'+fmt(r.liquidacao)+' · '+pctLiq.toFixed(1)+'%</span></div>';
     html += '<div class="pbar"><div class="pbar-fill liquidado'+(pctLiq>100?' over':'')+'" style="width:'+Math.min(pctLiq,100)+'%;"></div></div>';
-    html += '<div class="pbar-row"><span>Pago</span><span>R$ '+fmt(r.pagamento)+' · '+pctPag.toFixed(1)+'%</span></div>';
+    html += '<div class="pbar-row"><span>Pago</span><span>'+fmt(r.pagamento)+' · '+pctPag.toFixed(1)+'%</span></div>';
     html += '<div class="pbar"><div class="pbar-fill pago'+(pctPag>100?' over':'')+'" style="width:'+Math.min(pctPag,100)+'%;"></div></div>';
     html += '<div class="cc-saldos">';
-    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo do orçamento</div><div class="cc-saldo-value">R$ '+fmt(r.saldoOrc)+'</div></div>';
-    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a liquidar</div><div class="cc-saldo-value">R$ '+fmt(r.saldoLiq)+'</div></div>';
-    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a pagar</div><div class="cc-saldo-value">R$ '+fmt(r.saldoPagar)+'</div></div>';
+    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo do orçamento</div><div class="cc-saldo-value">'+fmt(r.saldoOrc)+'</div></div>';
+    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a liquidar</div><div class="cc-saldo-value">'+fmt(r.saldoLiq)+'</div></div>';
+    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a pagar</div><div class="cc-saldo-value">'+fmt(r.saldoPagar)+'</div></div>';
     html += '</div></div>';
   });
   html += '</div>';
@@ -700,7 +710,7 @@ if (fileInput) fileInput.addEventListener('change', async function(){
         if (seen.has(det.date)) throw new Error('Outra seleção já usa esta data. Selecione um arquivo por referência.');
         seen.add(det.date); preparedImports.push(det);
         var t=det.totalGeral;
-        results.push('<article class="import-preview"><strong>'+escHtml(file.name)+'</strong><p>Referência: '+fmtDate(det.date)+' · '+Object.keys(det.centros).length+' centros · '+(existing.includes(det.date)?'Substituirá o retrato existente':'Novo retrato')+'</p><p>Saldo orçamentário: R$ '+fmt(t.Orc_Desbloq)+' · Empenhado: R$ '+fmt(t.Empenhado)+' · Liquidado: R$ '+fmt(t.Liquidado)+' · Pago: R$ '+fmt(t.Pago)+'</p>'+(det.origem.formato==='excel'?'<p class="import-warning">O Excel customizado já apresentou divergências em Pago — Na Data. Confira com o PDF antes de salvar.</p>':'<p>Valores extraídos exclusivamente da coluna Na Data do PDF.</p>')+(det.avisos || []).map(function(w){return '<p class="import-warning">'+escHtml(w)+'</p>';}).join('')+'</article>');
+        results.push('<article class="import-preview"><strong>'+escHtml(file.name)+'</strong><p>Referência: '+fmtDate(det.date)+' · '+Object.keys(det.centros).length+' centros · '+(existing.includes(det.date)?'Substituirá o retrato existente':'Novo retrato')+'</p><p>Saldo orçamentário: '+fmt(t.Orc_Desbloq)+' · Empenhado: '+fmt(t.Empenhado)+' · Liquidado: '+fmt(t.Liquidado)+' · Pago: '+fmt(t.Pago)+'</p>'+(det.origem.formato==='excel'?'<p class="import-warning">O Excel customizado já apresentou divergências em Pago — Na Data. Confira com o PDF antes de salvar.</p>':'<p>Valores extraídos exclusivamente da coluna Na Data do PDF.</p>')+(det.avisos || []).map(function(w){return '<p class="import-warning">'+escHtml(w)+'</p>';}).join('')+'</article>');
       }catch(err){results.push('<p class="import-warning">'+escHtml(file.name)+': '+escHtml(err.message)+'</p>');}
     }
     if(generation!==importGeneration)return;
@@ -828,10 +838,10 @@ function renderDetalheCentro(bloco){
   var contas = Object.keys(bloco.contas).sort(function(a,b){ return nomeExibicaoConta(a).localeCompare(nomeExibicaoConta(b)); });
   var orcadoTotal = bloco.subtotal.Orc_Desbloq + bloco.subtotal.Empenhado;
   var html = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px; margin-bottom:20px;">';
-  html += '<div class="metric"><div class="label">Orçado</div><div class="value">R$ '+fmt(orcadoTotal)+'</div></div>';
-  html += '<div class="metric"><div class="label">Empenhado</div><div class="value">R$ '+fmt(bloco.subtotal.Empenhado)+'</div></div>';
-  html += '<div class="metric"><div class="label">Liquidado</div><div class="value">R$ '+fmt(bloco.subtotal.Liquidado)+'</div></div>';
-  html += '<div class="metric orange"><div class="label">Pago</div><div class="value">R$ '+fmt(bloco.subtotal.Pago)+'</div></div></div>';
+  html += '<div class="metric"><div class="label">Orçado</div><div class="value">'+fmt(orcadoTotal)+'</div></div>';
+  html += '<div class="metric"><div class="label">Empenhado</div><div class="value">'+fmt(bloco.subtotal.Empenhado)+'</div></div>';
+  html += '<div class="metric"><div class="label">Liquidado</div><div class="value">'+fmt(bloco.subtotal.Liquidado)+'</div></div>';
+  html += '<div class="metric orange"><div class="label">Pago</div><div class="value">'+fmt(bloco.subtotal.Pago)+'</div></div></div>';
 
   contas.forEach(function(conta){
     var v = bloco.contas[conta];
@@ -847,17 +857,17 @@ function renderDetalheCentro(bloco){
     html += '<div class="conta-row-head"><span class="conta-nome" title="'+escHtml(conta)+'">'+escHtml(nomeExibicaoConta(conta))+'</span>';
     if (currentRole === 'master'){ html += '<button class="conta-edit-btn" data-conta="'+escHtml(contaCodificada)+'">✎ apelido</button>'; }
     html += '</div>';
-    html += '<div class="cc-orcado">Orçado: <strong>R$ '+fmt(orcado)+'</strong></div>';
-    html += '<div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(v.Empenhado)+' · '+pctEmp.toFixed(1)+'%</span></div>';
+    html += '<div class="cc-orcado">Orçado: <strong>'+fmt(orcado)+'</strong></div>';
+    html += '<div class="pbar-row"><span>Empenhado</span><span>'+fmt(v.Empenhado)+' · '+pctEmp.toFixed(1)+'%</span></div>';
     html += '<div class="pbar"><div class="pbar-fill empenho'+(pctEmp>100?' over':'')+'" style="width:'+Math.min(pctEmp,100)+'%;"></div></div>';
-    html += '<div class="pbar-row"><span>Liquidado</span><span>R$ '+fmt(v.Liquidado)+' · '+pctLiq.toFixed(1)+'%</span></div>';
+    html += '<div class="pbar-row"><span>Liquidado</span><span>'+fmt(v.Liquidado)+' · '+pctLiq.toFixed(1)+'%</span></div>';
     html += '<div class="pbar"><div class="pbar-fill liquidado'+(pctLiq>100?' over':'')+'" style="width:'+Math.min(pctLiq,100)+'%;"></div></div>';
-    html += '<div class="pbar-row"><span>Pago</span><span>R$ '+fmt(v.Pago)+' · '+pctPag.toFixed(1)+'%</span></div>';
+    html += '<div class="pbar-row"><span>Pago</span><span>'+fmt(v.Pago)+' · '+pctPag.toFixed(1)+'%</span></div>';
     html += '<div class="pbar"><div class="pbar-fill pago'+(pctPag>100?' over':'')+'" style="width:'+Math.min(pctPag,100)+'%;"></div></div>';
     html += '<div class="cc-saldos">';
-    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo do orçamento</div><div class="cc-saldo-value">R$ '+fmt(saldoOrc)+'</div></div>';
-    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a liquidar</div><div class="cc-saldo-value">R$ '+fmt(saldoLiq)+'</div></div>';
-    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a pagar</div><div class="cc-saldo-value">R$ '+fmt(saldoPagar)+'</div></div>';
+    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo do orçamento</div><div class="cc-saldo-value">'+fmt(saldoOrc)+'</div></div>';
+    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a liquidar</div><div class="cc-saldo-value">'+fmt(saldoLiq)+'</div></div>';
+    html += '<div class="cc-saldo-box"><div class="cc-saldo-label">Saldo a pagar</div><div class="cc-saldo-value">'+fmt(saldoPagar)+'</div></div>';
     html += '</div></div>';
   });
 
@@ -901,7 +911,7 @@ function syncStudyDates(date){
 }
 studyFrom.addEventListener('change',renderStudies);studyTo.addEventListener('change',renderStudies);
 function studyTotal(rows){var t={orcado:0,empenho:0,liquidacao:0,pagamento:0,saldoOrc:0,saldoLiq:0,saldoPagar:0};rows.forEach(function(r){Object.keys(t).forEach(function(k){t[k]+=r[k];});});return t;}
-function studyMoney(v){return 'R$ '+fmt(v);}
+function studyMoney(v){return fmt(v);}
 function renderStudies(){
   var host=document.getElementById('studiesContent');if(!lastCurrentSnap){host.innerHTML='<p class="muted">Carregue um retrato para começar.</p>';return;}
   var date=lastCurrentSnap.date,rows=visibleRows(lastCurrentSnap),t=studyTotal(rows),html='<p class="muted">Referência '+fmtDate(date)+' · '+rows.length+' centros após os filtros</p>';

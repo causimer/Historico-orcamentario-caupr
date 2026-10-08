@@ -107,7 +107,7 @@ export function formatMoney(value) {
   const absolute = exact < 0n ? -exact : exact;
   const whole = (absolute / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   const fraction = (absolute % 100n).toString().padStart(2, '0');
-  return (exact < 0n ? '-R$ ' : 'R$ ') + whole + ',' + fraction;
+  return (exact < 0n ? 'R$ -' : 'R$ ') + whole + ',' + fraction;
 }
 
 function validYear(value) {

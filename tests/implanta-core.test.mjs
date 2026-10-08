@@ -33,7 +33,7 @@ test('centavos são exatos e ausência/subcentavo não se tornam zero', () => {
 
 test('formatação financeira não perde centavos acima do inteiro seguro', () => {
   assert.equal(formatMoney('9007199254740993.01'),'R$ 9.007.199.254.740.993,01');
-  assert.equal(formatMoney('-123.45'),'-R$ 123,45');
+  assert.equal(formatMoney('-123.45'),'R$ -123,45');
   assert.equal(formatMoney(12345n),'R$ 123,45');
   assert.equal(formatMoney('0'),'R$ 0,00');
   assert.equal(formatMoney(null),'Indisponível');

@@ -34,9 +34,32 @@ service cloud.firestore {
       allow write: if isMaster();
     }
 
+    // retrato detalhado por conta contábil (fonte única do sistema, alimentada
+    // pelo upload do relatório bruto do SISCONT)
+    match /snapshotsDetalhe/{date} {
+      allow read: if isSignedIn();
+      allow write: if isMaster();
+    }
+
     match /config/categorias {
       allow read: if isSignedIn();
       allow write: if isMaster();
+    }
+
+    // apelidos de conta contábil (nomes amigáveis exibidos no lugar do código do SISCONT)
+    match /config/apelidosContas {
+      allow read: if isSignedIn();
+      allow write: if isMaster();
+    }
+
+    // Módulos, documentação e payloads do laboratório são privados.
+    // O UID fixa a conta existente; e-mail isolado não autoriza acesso.
+    // Escritas administrativas usam IAM e não passam pelas regras do cliente.
+    match /implantaLab/{asset} {
+      allow get: if request.auth != null
+        && request.auth.uid == 'CP27dQkMVdUAE8CROxgJnmnkyP92'
+        && request.auth.token.email == 'bruno.simer@caupr.gov.br';
+      allow list, write: if false;
     }
   }
 }

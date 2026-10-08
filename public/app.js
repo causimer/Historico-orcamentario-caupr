@@ -1,10 +1,11 @@
 import { readPdf } from './pdf-import.js';
+import { createLabController } from './lab-bootstrap.js';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc
+  getFirestore, doc, getDoc, getDocFromServer, setDoc, collection, getDocs, deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -22,6 +23,7 @@ const db = getFirestore(app);
 
 let currentUser = null;   // { uid, email }
 let currentRole = null;   // 'master' | 'viewer'
+let authRevision = 0;
 var todayISO = new Date().toISOString().slice(0,10);
 
 // ---------- elementos ----------
@@ -35,6 +37,19 @@ const loginError = document.getElementById('loginError');
 const onboardMsg = document.getElementById('onboardMsg');
 const sidebarUser = document.getElementById('sidebarUser');
 const logoutBtn = document.getElementById('logoutBtn');
+const laboratory = createLabController({
+  nav: document.getElementById('labNav'),
+  root: document.getElementById('view-laboratorio'),
+  getCurrentUser: () => currentUser,
+  readAsset: async (id) => {
+    const asset = await getDocFromServer(doc(db, 'implantaLab', id));
+    if (!asset.exists()) throw new Error('Conteúdo indisponível.');
+    return asset.data();
+  },
+  getSnapshotDates: () => availableDates.slice(),
+  getSnapshot: (date) => snapshotsByDate[date],
+  centerMap: () => MAPEAMENTO_CENTROS
+});
 
 // ---------- login ----------
 loginBtn.addEventListener('click', function(){
@@ -46,53 +61,69 @@ loginPassword.addEventListener('keydown', function(e){ if (e.key === 'Enter') lo
 
 logoutBtn.addEventListener('click', function(){ signOut(auth); });
 
-function provisionNewUser(user){
+function provisionNewUser(user, isCurrent){
   onboardMsg.textContent = 'Preparando sua conta...';
   return getDoc(doc(db, 'config', 'roles')).then(function(rolesSnap){
+    if (!isCurrent()) return null;
     var masterEmail = rolesSnap.exists() ? rolesSnap.data().masterEmail : null;
     var role = (masterEmail && user.email === masterEmail) ? 'master' : 'viewer';
     return setDoc(doc(db, 'users', user.uid), {
       email: user.email, role: role, displayName: user.email.split('@')[0]
-    }).then(function(){ return role; });
+    }).then(function(){ return isCurrent() ? role : null; });
   });
 }
 
 // ---------- observador de autenticação ----------
 onAuthStateChanged(auth, function(user){
+  const revision = ++authRevision;
+  currentUser = user || null;
+  currentRole = null;
+  laboratory.sync();
+  appShell.style.display = 'none';
+  onboardScreen.style.display = 'none';
+  loginScreen.style.display = user ? 'none' : 'flex';
+  const isCurrent = () => revision === authRevision && currentUser?.uid === user?.uid;
   if (!user){
-    currentUser = null; currentRole = null;
-    loginScreen.style.display = 'flex';
-    onboardScreen.style.display = 'none';
-    appShell.style.display = 'none';
     return;
   }
-  currentUser = user;
   getDoc(doc(db, 'users', user.uid)).then(function(snap){
+    if (!isCurrent()) return;
     if (snap.exists()){
       currentRole = snap.data().role;
       enterApp();
     } else {
       loginScreen.style.display = 'none';
       onboardScreen.style.display = 'flex';
-      provisionNewUser(user).then(function(role){
+      provisionNewUser(user, isCurrent).then(function(role){
+        if (!isCurrent() || !role) return;
         currentRole = role;
         enterApp();
       }).catch(function(err){
+        if (!isCurrent()) return;
         onboardMsg.textContent = 'Não foi possível preparar sua conta. Peça para o master verificar o acesso. (' + err.message + ')';
       });
     }
+  }).catch(function(){
+    if (!isCurrent()) return;
+    loginScreen.style.display = 'flex';
+    loginError.textContent = 'Não foi possível verificar seu perfil. Tente entrar novamente.';
   });
 });
 
 function enterApp(){
+  laboratory.sync();
   loginScreen.style.display = 'none';
   onboardScreen.style.display = 'none';
   appShell.style.display = 'flex';
   sidebarUser.textContent = currentUser.email + ' · ' + (currentRole === 'master' ? 'master' : 'visualizador(a)');
   document.querySelectorAll('.master-only').forEach(function(el){
-    el.style.display = (currentRole === 'master') ? '' : 'none';
+    el.style.display = (currentRole === 'master' && !el.classList.contains('view')) ? '' : 'none';
   });
-  initDataAndViews();
+  document.querySelectorAll('.view').forEach(function(el){ el.style.display = el.id === 'view-inicio' ? 'block' : 'none'; });
+  document.querySelectorAll('.nav-item[data-view]').forEach(function(el){ el.classList.toggle('active', el.dataset.view === 'inicio'); });
+  document.getElementById('budgetControls').hidden = false;
+  const revision = authRevision;
+  initDataAndViews(() => revision === authRevision && !!currentUser);
 }
 
 // ---------- navegação da barra lateral ----------
@@ -104,6 +135,7 @@ document.querySelectorAll('.nav-item[data-view]').forEach(function(btn){
     document.getElementById('view-' + btn.dataset.view).style.display = 'block';
     document.getElementById('budgetControls').hidden = !['inicio','estudos'].includes(btn.dataset.view);
     if(btn.dataset.view==='estudos') renderStudies();
+    if(btn.dataset.view==='laboratorio') laboratory.open();
   });
 });
 
@@ -212,8 +244,11 @@ function migrarNomenclaturaAntiga(){
   return changed;
 }
 
-function initDataAndViews(){
+function initDataAndViews(isCurrent){
+  const revision = authRevision;
+  if (typeof isCurrent !== 'function') isCurrent = () => revision === authRevision && !!currentUser;
   Promise.all([loadCategoriasDoc(), listSnapshotDates(), loadApelidosDoc()]).then(function(res){
+    if (!isCurrent()) return;
     catState = res[0];
     if (!catState.colors) catState.colors = {};
     var dates = res[1];
@@ -221,6 +256,7 @@ function initDataAndViews(){
     if (!apelidosState.map) apelidosState.map = {};
     var changed = currentRole === 'master' ? migrarNomenclaturaAntiga() : false;
     return Promise.all(dates.map(loadSnapshot)).then(function(snaps){
+      if (!isCurrent()) return;
       snaps.forEach(function(snap){
         rowsFromSnapshot(snap).forEach(function(r){
           if (!catState.map[r.centro]){ catState.map[r.centro] = suggestCategory(r.centro); changed = true; }
@@ -228,6 +264,7 @@ function initDataAndViews(){
       });
       var save = changed && currentRole === 'master' ? saveCategoriasDoc(catState) : Promise.resolve();
       return save.then(function(){
+        if (!isCurrent()) return;
         selectedCategories = categoryNames();
         renderCatMultiList();
         updateCatMultiBtnLabel();
@@ -248,6 +285,9 @@ function initDataAndViews(){
 function escHtml(s){
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+function safeHexColor(value, fallback){
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
+}
 
 // ---------- filtros ----------
 var filterBusca = document.getElementById('filterBusca');
@@ -263,7 +303,7 @@ document.getElementById('catMultiNone').addEventListener('click',function(){sele
 function renderCatMultiList(){
   var names=categoryNames();if(selectedCategories===null)selectedCategories=names.slice();catMultiList.replaceChildren();
   names.forEach(function(c){var btn=document.createElement('button');btn.type='button';btn.className='category-toggle';var active=selectedCategories.includes(c);btn.setAttribute('aria-pressed',String(active));
-    var indicator=document.createElement('span');indicator.className='category-indicator';indicator.style.backgroundColor=(catState.colors && catState.colors[c]) || '#7c9873';
+    var indicator=document.createElement('span');indicator.className='category-indicator';indicator.style.backgroundColor=safeHexColor(catState.colors && catState.colors[c], '#7c9873');
     var label=document.createElement('span');label.textContent=c;var state=document.createElement('span');state.className='toggle-state';state.textContent=active?'Ligada':'Desligada';btn.append(indicator,label,state);
     btn.addEventListener('click',function(){if(selectedCategories.includes(c))selectedCategories=selectedCategories.filter(function(x){return x!==c;});else selectedCategories.push(c);renderCatMultiList();refreshFilteredViews();});catMultiList.append(btn);
   });updateCatMultiBtnLabel();
@@ -311,7 +351,7 @@ function renderCatColorList(){
     row.className = 'cat-color-row';
     var input = document.createElement('input');
     input.type = 'color';
-    input.value = catState.colors[c] || '#F5F1E7';
+    input.value = safeHexColor(catState.colors[c], '#F5F1E7');
     input.addEventListener('change', function(){
       catState.colors[c] = input.value;
       saveCategoriasDoc(catState).then(function(){ renderCatMultiList(); refreshFilteredViews(); });
@@ -395,10 +435,10 @@ function renderCurrent(snap){
     var pctEmp = r.orcado ? (r.empenho / r.orcado * 100) : 0;
     var pctLiq = r.orcado ? (r.liquidacao / r.orcado * 100) : 0;
     var pctPag = r.orcado ? (r.pagamento / r.orcado * 100) : 0;
-    var cardColor = (catState.colors && catState.colors[catState.map[r.centro]]) || '';
+    var cardColor = safeHexColor(catState.colors && catState.colors[catState.map[r.centro]], '');
     html += '<div class="cc-card"' + (cardColor ? ' style="background:'+cardColor+';"' : '') + '>';
-    html += '<div class="cc-name">'+r.centro+'</div>';
-    html += '<div class="cc-cat">'+(catState.map[r.centro]||'sem categoria')+'</div>';
+    html += '<div class="cc-name">'+escHtml(r.centro)+'</div>';
+    html += '<div class="cc-cat">'+escHtml(catState.map[r.centro]||'sem categoria')+'</div>';
     html += '<div class="cc-orcado">Orçado: <strong>R$ '+fmt(r.orcado)+'</strong></div>';
     html += '<div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(r.empenho)+' · '+pctEmp.toFixed(1)+'%</span></div>';
     html += '<div class="pbar"><div class="pbar-fill empenho'+(pctEmp>100?' over':'')+'" style="width:'+Math.min(pctEmp,100)+'%;"></div></div>';
@@ -441,7 +481,7 @@ function renderCategorySummary(snap){
   var html = '<div style="overflow-x:auto;"><table><thead><tr><th>Categoria</th><th>Centros</th><th>Orçado</th><th>Empenhado</th><th>Liquidado</th><th>Pago</th><th>Saldo orçamento</th><th>Saldo a liquidar</th><th>Saldo a pagar</th><th>% executado</th></tr></thead><tbody>';
   cats.forEach(function(cat){
     var c = byCat[cat]; var pct = c.orcado ? (c.pagamento/c.orcado*100) : 0;
-    html += '<tr><td>'+cat+'</td><td>'+c.n+'</td><td>'+fmt(c.orcado)+'</td><td>'+fmt(c.empenho)+'</td><td>'+fmt(c.liquidacao)+'</td><td>'+fmt(c.pagamento)+'</td><td>'+fmt(c.saldoOrc)+'</td><td>'+fmt(c.saldoLiq)+'</td><td>'+fmt(c.saldoPagar)+'</td><td>'+pct.toFixed(2)+'%</td></tr>';
+    html += '<tr><td>'+escHtml(cat)+'</td><td>'+c.n+'</td><td>'+fmt(c.orcado)+'</td><td>'+fmt(c.empenho)+'</td><td>'+fmt(c.liquidacao)+'</td><td>'+fmt(c.pagamento)+'</td><td>'+fmt(c.saldoOrc)+'</td><td>'+fmt(c.saldoLiq)+'</td><td>'+fmt(c.saldoPagar)+'</td><td>'+pct.toFixed(2)+'%</td></tr>';
   });
   html += '</tbody></table></div>';
   categorySummaryCard.innerHTML = html;
@@ -774,7 +814,7 @@ function openDetalheCentro(centro, date){
     }
     renderDetalheCentro(det.centros[centro]);
   }).catch(function(err){
-    detalheCentroCard.innerHTML = '<p class="muted">Erro ao carregar: ' + err.message + '</p>';
+    detalheCentroCard.innerHTML = '<p class="muted">Erro ao carregar: ' + escHtml(err.message) + '</p>';
   });
 }
 
@@ -804,8 +844,8 @@ function renderDetalheCentro(bloco){
     var pctPag = orcado ? (v.Pago / orcado * 100) : 0;
     var contaCodificada = encodeURIComponent(conta);
     html += '<div class="conta-row">';
-    html += '<div class="conta-row-head"><span class="conta-nome" title="'+conta.replace(/"/g,'&quot;')+'">'+nomeExibicaoConta(conta)+'</span>';
-    if (currentRole === 'master'){ html += '<button class="conta-edit-btn" data-conta="'+contaCodificada+'">✎ apelido</button>'; }
+    html += '<div class="conta-row-head"><span class="conta-nome" title="'+escHtml(conta)+'">'+escHtml(nomeExibicaoConta(conta))+'</span>';
+    if (currentRole === 'master'){ html += '<button class="conta-edit-btn" data-conta="'+escHtml(contaCodificada)+'">✎ apelido</button>'; }
     html += '</div>';
     html += '<div class="cc-orcado">Orçado: <strong>R$ '+fmt(orcado)+'</strong></div>';
     html += '<div class="pbar-row"><span>Empenhado</span><span>R$ '+fmt(v.Empenhado)+' · '+pctEmp.toFixed(1)+'%</span></div>';
